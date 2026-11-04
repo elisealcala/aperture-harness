@@ -9,7 +9,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "aperture": "node --no-warnings=ExperimentalWarning --import tsx apps/cli/src/main.ts",
+    "aperture": "node apps/cli/bin/aperture.js",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run",
