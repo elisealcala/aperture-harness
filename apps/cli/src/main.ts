@@ -3,6 +3,7 @@ import type { GlobalOptions } from './context.ts';
 import { initCommand } from './commands/init.ts';
 import { diffCommand, logsCommand, statusCommand } from './commands/inspect.ts';
 import { answerCommand, attachCommand, cancelCommand, resumeCommand, reviewCommand, usageCommand, type AnswerOptions, type ResumeOptions, type ReviewOptions } from './commands/lifecycle.ts';
+import { prCreateCommand, prDraftCommand } from './commands/pr.ts';
 import { runCommand, type RunCommandOptions } from './commands/run.ts';
 
 export function buildProgram(setExit: (code: number) => void): Command {
@@ -124,6 +125,20 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .option('--acknowledge-unverified', 'accept unverified requirements on manual review')
     .option('--reject', 'reject the diff and cancel the run')
     .action(wrap((runId: string, opts: ReviewOptions) => reviewCommand(runId, opts, globals())));
+
+  const pr = program.command('pr').description('pull request drafting and publication');
+  pr.command('draft')
+    .description('draft PR title/body with the PR model from verified evidence')
+    .argument('<run-id>')
+    .option('--model <id>', 'PR drafting model (default: contract models.prDraft)')
+    .option('--repository <owner/repo>', 'associate a GitHub repository (required for unmapped Linear tasks)')
+    .option('--no-draft-pr', 'open a ready-for-review PR instead of a draft PR')
+    .action(wrap((runId: string, opts: { model?: string; repository?: string; draftPr: boolean }) => prDraftCommand(runId, opts, globals())));
+  pr.command('create')
+    .description('commit, push and open the PR after explicit approval')
+    .argument('<run-id>')
+    .option('-y, --yes', 'approve publication without prompting')
+    .action(wrap((runId: string, opts: { yes?: boolean }) => prCreateCommand(runId, opts, globals())));
 
   return program;
 }
