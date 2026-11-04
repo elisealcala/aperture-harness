@@ -225,6 +225,11 @@ export class ApertureStore {
     this.sql.run(insertSql('tasks', p), p);
   }
 
+  /** Associates a GitHub repository with a task whose source had none (e.g. an unmapped Linear team). */
+  setTaskRepository(taskId: string, repository: string): void {
+    this.sql.run('UPDATE tasks SET repository = :repository WHERE task_id = :id', { id: taskId, repository });
+  }
+
   getTask(taskId: string): TaskRecord | undefined {
     return camelize(this.sql.get('SELECT * FROM tasks WHERE task_id = :task_id', { task_id: taskId }));
   }

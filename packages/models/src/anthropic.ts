@@ -34,16 +34,18 @@ export class AnthropicProvider implements ModelProvider {
       model: request.modelId,
       max_tokens: request.maxTokens,
       system: [{ type: 'text', text: request.system, ...(cacheControl ? { cache_control: cacheControl } : {}) }],
-      tools: request.tools.map((tool) => ({
+      ...(request.tools.length > 0 ? { tools: request.tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
         input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
         // Stream large inputs (diffs) as generated; the gateway validates every input with Zod.
         eager_input_streaming: true,
-      })),
+      })) } : {}),
       messages: request.messages,
       ...(cacheControl ? { cache_control: cacheControl } : {}),
-      ...(request.effort ? { output_config: { effort: request.effort } } : {}),
+      ...(request.effort || request.outputSchema
+        ? { output_config: { ...(request.effort ? { effort: request.effort } : {}), ...(request.outputSchema ? { format: { type: 'json_schema' as const, schema: request.outputSchema } } : {}) } }
+        : {}),
     };
   }
 

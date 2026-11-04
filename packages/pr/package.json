@@ -8,9 +8,11 @@
   },
   "dependencies": {
     "@aperture/contracts": "workspace:*",
+    "@aperture/core": "workspace:*",
     "@aperture/events": "workspace:*",
     "@aperture/models": "workspace:*",
     "@aperture/sandbox": "workspace:*",
+    "@aperture/sources": "workspace:*",
     "@aperture/storage": "workspace:*",
     "zod": "^4.6.7"
   }

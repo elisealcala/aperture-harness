@@ -18,6 +18,8 @@ export interface ModelRequest {
   maxTokens: number;
   cache: { enabled: boolean; ttl: CacheTtl };
   effort?: Effort;
+  /** JSON schema for structured output (`output_config.format`); the reply is JSON text. */
+  outputSchema?: Record<string, unknown>;
   signal?: AbortSignal;
   /** Observable text deltas (never hidden reasoning). */
   onText?: (delta: string) => void;

@@ -194,6 +194,9 @@ importers:
       '@aperture/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@aperture/core':
+        specifier: workspace:*
+        version: link:../core
       '@aperture/events':
         specifier: workspace:*
         version: link:../events
@@ -203,6 +206,9 @@ importers:
       '@aperture/sandbox':
         specifier: workspace:*
         version: link:../sandbox
+      '@aperture/sources':
+        specifier: workspace:*
+        version: link:../sources
       '@aperture/storage':
         specifier: workspace:*
         version: link:../storage
