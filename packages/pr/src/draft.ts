@@ -54,8 +54,11 @@ export function validateDraft(raw: unknown, packet: EvidencePacket, redactLitera
   for (const line of draft.testing) {
     const cited = [...checkStatus.keys()].filter((id) => new RegExp(`(^|[^\\w-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\w-]|$)`).test(line));
     if (cited.length === 0) problems.push(`testing line does not cite a verified check: "${line.slice(0, 80)}"`);
+    // Look for success words outside the check ids themselves (an id like `pass-through` is not a claim).
+    const prose = cited.reduce((text, id) => text.split(id).join(' '), line);
+    const claimsSuccess = /\b(pass(ed|es)?|green|succeed(ed|s)?)\b/i.test(prose);
     for (const id of cited) {
-      if (checkStatus.get(id) !== 'PASS' && /\b(pass(ed|es)?|green|succeed(ed|s)?)\b/i.test(line)) problems.push(`testing line claims ${id} passed but it was ${checkStatus.get(id)}`);
+      if (checkStatus.get(id) !== 'PASS' && claimsSuccess) problems.push(`testing line claims ${id} passed but it was ${checkStatus.get(id)}`);
     }
   }
   if (problems.length > 0) return { ok: false, problems };
