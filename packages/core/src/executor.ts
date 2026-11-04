@@ -11,8 +11,6 @@ export interface ExecutionContext {
   contract: ApprovedContract;
   gateway: ToolGateway;
   signal: AbortSignal;
-  /** Diagnostics from the previous failed verification round, if any. */
-  verificationFeedback?: string;
 }
 
 export type ExecutorOutcome =
@@ -20,7 +18,7 @@ export type ExecutorOutcome =
   | { type: 'paused'; pause: PauseRequest }
   | { type: 'blocked'; code: string; reason: string }
   | { type: 'failed'; reason: string }
-  | { type: 'interrupted' };
+  | { type: 'interrupted'; reason?: string };
 
 /** A replaceable execution worker. It proposes; the harness decides. */
 export interface Executor {
