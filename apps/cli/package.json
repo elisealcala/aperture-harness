@@ -18,7 +18,12 @@
     "@aperture/storage": "workspace:*",
     "@aperture/verifier": "workspace:*",
     "commander": "^14.0.3",
+    "ink": "^8.0.0",
+    "react": "^19.3.1",
     "tsx": "^4.23.15",
     "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0"
   }
 }

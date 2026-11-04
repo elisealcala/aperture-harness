@@ -2,7 +2,7 @@ import { Command, CommanderError } from 'commander';
 import type { GlobalOptions } from './context.ts';
 import { initCommand } from './commands/init.ts';
 import { diffCommand, logsCommand, statusCommand } from './commands/inspect.ts';
-import { answerCommand, cancelCommand, resumeCommand, reviewCommand, usageCommand, type AnswerOptions, type ResumeOptions, type ReviewOptions } from './commands/lifecycle.ts';
+import { answerCommand, attachCommand, cancelCommand, resumeCommand, reviewCommand, usageCommand, type AnswerOptions, type ResumeOptions, type ReviewOptions } from './commands/lifecycle.ts';
 import { runCommand, type RunCommandOptions } from './commands/run.ts';
 
 export function buildProgram(setExit: (code: number) => void): Command {
@@ -41,6 +41,7 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .option('-v, --verbose', 'show every tool request and model turn')
     .option('-q, --quiet', 'print only the final summary')
     .option('--filter <types>', 'comma-separated event type prefixes to show (e.g. tool,check)')
+    .option('--tui', 'full-screen Ink interface (interactive terminals)')
     .action(wrap((task: string, opts: RunCommandOptions) => runCommand(task, opts, globals())));
 
   program
@@ -77,7 +78,15 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .option('-v, --verbose', 'show every tool request and model turn')
     .option('-q, --quiet', 'print only the final summary')
     .option('--filter <types>', 'comma-separated event type prefixes to show')
+    .option('--tui', 'full-screen Ink interface (interactive terminals)')
     .action(wrap((runId: string, opts: ResumeOptions) => resumeCommand(runId, opts, globals())));
+
+  program
+    .command('attach')
+    .description('live read-only TUI for a run (overview, activity, diff, checks, costs, questions)')
+    .argument('<run-id>')
+    .option('--show-model-text', 'start with model text visible')
+    .action(wrap((runId: string, opts: { showModelText?: boolean }) => attachCommand(runId, opts, globals())));
 
   program
     .command('answer')

@@ -1,8 +1,8 @@
-import { loadPreauthorizedAnswers, Orchestrator, isTerminal, type Harness } from '@aperture/core';
+import { loadPreauthorizedAnswers, isTerminal, type Harness } from '@aperture/core';
 import type { RunRecord } from '@aperture/storage';
 import { openHarness, type GlobalOptions } from '../context.ts';
 import { createExecutor } from '../executors.ts';
-import { createInteraction } from '../interaction/factory.ts';
+import { driveWithUi } from './drive-ui.ts';
 import { formatEvent, usd, type TextRenderOptions } from '../render/text.ts';
 
 export interface RunCommandOptions {
@@ -19,6 +19,7 @@ export interface RunCommandOptions {
   quiet?: boolean;
   filter?: string;
   answers?: string;
+  tui?: boolean;
 }
 
 export const EXIT = { OK: 0, ERROR: 1, NOT_COMPLETED: 2, WAITING: 3 } as const;
@@ -59,20 +60,12 @@ export function printSummary(harness: Harness, run: RunRecord): void {
 
 export async function runCommand(reference: string, opts: RunCommandOptions, globals: GlobalOptions): Promise<number> {
   const harness = openHarness(globals);
-  const detach = attachRenderer(harness, renderOptions(opts));
-  let closeInteraction = () => undefined as void;
-  const controller = new AbortController();
-  const onSigint = () => {
-    if (controller.signal.aborted) process.exit(130);
-    process.stderr.write('\ninterrupting… (state is persisted; resume with `aperture resume <run-id>`)\n');
-    controller.abort();
-  };
-  process.on('SIGINT', onSigint);
   try {
     const budgetUsd = opts.budget !== undefined ? Number(opts.budget) : undefined;
     if (budgetUsd !== undefined && !(budgetUsd > 0)) throw new Error(`--budget must be a positive number of USD, got ${opts.budget}`);
     if (opts.cache !== undefined && opts.cache !== '5m' && opts.cache !== '1h' && opts.cache !== 'off') throw new Error('--cache must be 5m, 1h or off');
     const executor = createExecutor(harness, { ...(opts.script ? { script: opts.script } : {}) });
+    const preauthorized = opts.answers ? loadPreauthorizedAnswers(opts.answers) : undefined;
     const run = await harness.ingest(reference, {
       ...(opts.repo ? { repoPath: opts.repo } : {}),
       cwd: process.cwd(),
@@ -85,20 +78,26 @@ export async function runCommand(reference: string, opts: RunCommandOptions, glo
       },
     });
     const task = harness.store.getTask(run.taskId)!;
-    const choice = createInteraction({ interactive: opts.interactive, preapproveContract: Boolean(opts.yes) || (task.sourceType === 'local' && !opts.interactive) });
-    closeInteraction = choice.close;
-    const final = await new Orchestrator(harness).drive(run.runId, {
+    if (!opts.tui && !opts.quiet) {
+      // Replay what ingestion already logged so the stream starts with the run header.
+      for (const event of harness.events.list(run.runId)) {
+        const line = formatEvent(event, { ...renderOptions(opts), color: Boolean(process.stdout.isTTY) });
+        if (line !== null) process.stdout.write(`${line}\n`);
+      }
+    }
+    const final = await driveWithUi(harness, run.runId, {
       executor,
-      interaction: choice.interaction,
-      signal: controller.signal,
-      ...(opts.answers ? { preauthorized: loadPreauthorizedAnswers(opts.answers) } : {}),
+      interactive: opts.interactive,
+      // A local contract file is the operator's own artifact: with --no-interactive it is preapproved.
+      preapproveContract: Boolean(opts.yes) || (task.sourceType === 'local' && !opts.interactive),
+      ...(opts.tui ? { tui: true } : {}),
+      ...(preauthorized ? { preauthorized } : {}),
+      render: renderOptions(opts),
+      mode: 'drive',
     });
     printSummary(harness, final);
     return exitCodeFor(final);
   } finally {
-    process.off('SIGINT', onSigint);
-    closeInteraction();
-    detach();
     harness.close();
   }
 }

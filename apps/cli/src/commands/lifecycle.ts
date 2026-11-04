@@ -1,4 +1,6 @@
 import { canTransition, loadPreauthorizedAnswers, Orchestrator, PauseService, renderReport, usageTotals } from '@aperture/core';
+import { startTui } from '../tui/index.tsx';
+import { driveWithUi } from './drive-ui.ts';
 import type { VerificationReport } from '@aperture/verifier';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +8,7 @@ import { openHarness, type GlobalOptions } from '../context.ts';
 import { createExecutor } from '../executors.ts';
 import { createInteraction } from '../interaction/factory.ts';
 import { defaultActor } from '../interaction/readline.ts';
-import { attachRenderer, exitCodeFor, printSummary, renderOptions } from './run.ts';
+import { exitCodeFor, printSummary, renderOptions } from './run.ts';
 import { usd } from '../render/text.ts';
 
 export interface ResumeOptions {
@@ -17,35 +19,39 @@ export interface ResumeOptions {
   verbose?: boolean;
   quiet?: boolean;
   filter?: string;
+  tui?: boolean;
 }
 
 export async function resumeCommand(runId: string, opts: ResumeOptions, globals: GlobalOptions): Promise<number> {
   const harness = openHarness(globals);
-  const detach = attachRenderer(harness, renderOptions(opts));
-  const controller = new AbortController();
-  const onSigint = () => {
-    if (controller.signal.aborted) process.exit(130);
-    process.stderr.write('\ninterrupting… (state is persisted)\n');
-    controller.abort();
-  };
-  process.on('SIGINT', onSigint);
-  const choice = createInteraction({ interactive: opts.interactive, preapproveContract: false });
   try {
     const run = harness.getRun(runId);
     const executor = createExecutor(harness, { ...(opts.script ? { script: opts.script } : {}) });
-    const orchestrator = new Orchestrator(harness);
-    const final = await orchestrator.resume(run.runId, {
+    const final = await driveWithUi(harness, run.runId, {
       executor,
-      interaction: choice.interaction,
-      signal: controller.signal,
+      interactive: opts.interactive,
+      preapproveContract: false,
+      ...(opts.tui ? { tui: true } : {}),
       ...(opts.answers ? { preauthorized: loadPreauthorizedAnswers(opts.answers) } : {}),
+      render: renderOptions(opts),
+      mode: 'resume',
     });
     printSummary(harness, final);
     return exitCodeFor(final);
   } finally {
-    process.off('SIGINT', onSigint);
-    choice.close();
-    detach();
+    harness.close();
+  }
+}
+
+export async function attachCommand(runId: string, opts: { showModelText?: boolean }, globals: GlobalOptions): Promise<number> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('attach needs an interactive terminal; use `aperture logs <run-id> --follow` instead');
+  const harness = openHarness(globals);
+  try {
+    const run = harness.getRun(runId);
+    const tui = startTui(harness, () => run.runId, { ...(opts.showModelText !== undefined ? { showModelText: opts.showModelText } : {}), onQuit: () => undefined });
+    await tui.waitUntilExit();
+    return 0;
+  } finally {
     harness.close();
   }
 }
