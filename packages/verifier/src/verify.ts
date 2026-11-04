@@ -149,7 +149,7 @@ export async function verifyRun(input: VerifyInput): Promise<VerificationReport>
     if (spec.permissions.dependencies === 'deny' && DEPENDENCY_FILES.has(basename(c.path))) {
       violations.push({ path: c.path, code: 'DEPENDENCY_EDIT', detail: 'dependency manifests and lockfiles may not change' });
     }
-    return { path: c.path, status: c.status, added: stat?.added ?? null, removed: stat?.removed ?? null, authorized };
+    return { path: c.path, status: c.status, added: stat?.added ?? null, removed: stat?.deleted ?? null, authorized };
   });
   for (const line of summary) {
     if (/mode change/.test(line)) violations.push({ path: line.replace(/^.*mode change \d+ => \d+ /, ''), code: 'MODE_CHANGE', detail: line });

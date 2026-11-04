@@ -321,7 +321,7 @@ export function App({ load, interaction, pollMs = 400, initialShowModelText = fa
     if (key.downArrow) setOffset(tab === 'Diff' ? offset + 1 : Math.max(0, offset - 1));
   });
 
-  const height = Math.max(8, (stdout.rows ?? 30) - 7);
+  const height = Math.max(8, ((stdout as NodeJS.WriteStream).rows ?? 30) - 7);
   const s = snapshot;
   return (
     <Box flexDirection="column">
