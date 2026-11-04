@@ -1,5 +1,18 @@
 import type { ExecutionContract, UserConfig } from '@aperture/contracts';
-import { parseSourceRef, SourceError, YamlContractSource, type NormalizedTask, type SourceRef, type TaskSource } from '@aperture/sources';
+import {
+  compileContract,
+  GitHubClient,
+  GitHubIssueSource,
+  LinearIssueSource,
+  parseSourceRef,
+  SourceError,
+  YamlContractSource,
+  type FetchLike,
+  type NormalizedTask,
+  type RepoContext,
+  type SourceRef,
+  type TaskSource,
+} from '@aperture/sources';
 
 export interface ContractProposalDraft {
   contract: ExecutionContract;
@@ -7,16 +20,31 @@ export interface ContractProposalDraft {
   notes: string[];
 }
 
-export type ContractCompiler = (task: NormalizedTask, config: UserConfig) => ContractProposalDraft;
+export type ContractCompiler = (task: NormalizedTask, config: UserConfig, repo: RepoContext) => ContractProposalDraft;
 
-/** Dispatches task references to source adapters and turns normalized tasks into proposals. */
+/**
+ * Dispatches task references to source adapters and turns normalized tasks into proposals. Every
+ * source flows into the same NormalizedTask → proposed contract → approval pipeline.
+ */
 export class SourceRegistry {
   private readonly adapters = new Map<SourceRef['type'], TaskSource>();
 
-  constructor(private readonly compiler?: ContractCompiler) {}
+  constructor(private readonly compiler: ContractCompiler = compileContract) {}
 
-  static withDefaults(_config: UserConfig, _env: NodeJS.ProcessEnv): SourceRegistry {
-    return new SourceRegistry().register(new YamlContractSource());
+  static withDefaults(config: UserConfig, env: NodeJS.ProcessEnv, fetchImpl?: FetchLike): SourceRegistry {
+    const github = GitHubClient.fromEnv(env, config.providers.github, fetchImpl);
+    const linearKey = env[config.providers.linear.apiKeyEnv];
+    return new SourceRegistry()
+      .register(new YamlContractSource())
+      .register(new GitHubIssueSource(github))
+      .register(
+        new LinearIssueSource({
+          apiUrl: config.providers.linear.apiUrl,
+          ...(linearKey ? { apiKey: linearKey } : {}),
+          teamRepositories: config.linear.teamRepositories,
+          ...(fetchImpl ? { fetch: fetchImpl } : {}),
+        }),
+      );
   }
 
   register(source: TaskSource): this {
@@ -31,9 +59,8 @@ export class SourceRegistry {
     return adapter.fetch(ref);
   }
 
-  async proposeContract(task: NormalizedTask, config: UserConfig): Promise<ContractProposalDraft> {
+  async proposeContract(task: NormalizedTask, config: UserConfig, repo: RepoContext): Promise<ContractProposalDraft> {
     if (task.contract) return { contract: task.contract, notes: [] };
-    if (!this.compiler) throw new SourceError(`no contract compiler available for ${task.sourceType} tasks`, 'UNSUPPORTED');
-    return this.compiler(task, config);
+    return this.compiler(task, config, repo);
   }
 }

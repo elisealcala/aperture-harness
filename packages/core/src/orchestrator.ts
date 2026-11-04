@@ -76,6 +76,8 @@ export class Orchestrator {
     }
     const dangling = this.harness.store.toolOpsForRun(run.runId, 'started').map((op) => op.opId);
     this.harness.emit(run.runId, 'run.resumed', { state: run.state, projectionRebuilt: rebuilt, danglingOperations: dangling });
+    // Report (never apply) source ticket drift since the snapshot was pinned.
+    await this.harness.checkSourceDrift(run.runId);
     return this.drive(run.runId, options);
   }
 

@@ -33,6 +33,7 @@ export const EVENT_TYPES = [
   'pr.approval.granted',
   'pr.published',
   'recovery.reconciled',
+  'source.drift.detected',
   'error',
 ] as const;
 

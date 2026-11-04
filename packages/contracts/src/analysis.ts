@@ -1,6 +1,9 @@
 import { compileGlobs, isGlobPattern } from './glob.ts';
 import type { ExecutionContract } from './schema.ts';
 
+/** Placeholder left by the contract compiler where a person must decide. */
+export const PLACEHOLDER = '__EDIT_ME__';
+
 export interface ContractFinding {
   level: 'error' | 'warning';
   code: string;
@@ -28,6 +31,15 @@ export function analyzeContract(contract: ExecutionContract, knownCommandIds: Re
     if (!Object.hasOwn(commands, check.commandId) && !knownCommandIds.has(check.commandId)) {
       findings.push({ level: 'error', code: 'UNKNOWN_COMMAND', message: `check ${check.id} references command ${check.commandId}, which is not defined in the contract or user config` });
     }
+  }
+
+  const placeholders = [
+    ...contract.spec.requirements.filter((r) => r.text.includes(PLACEHOLDER)).map((r) => `requirement ${r.id}`),
+    ...[...scope.writable, ...scope.readable].filter((p) => p.includes(PLACEHOLDER)).map((p) => `path ${p}`),
+    ...(contract.spec.goal.includes(PLACEHOLDER) ? ['goal'] : []),
+  ];
+  if (placeholders.length > 0) {
+    findings.push({ level: 'error', code: 'NEEDS_EDIT', message: `fill in the ${PLACEHOLDER} placeholders before approving (${placeholders.join(', ')})` });
   }
 
   if (!checks.some((c) => c.required)) {

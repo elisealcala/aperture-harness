@@ -16,8 +16,8 @@ import {
 } from '@aperture/contracts';
 import { EventStore, type EventType } from '@aperture/events';
 import { ToolGateway } from '@aperture/gateway';
-import { defaultHiddenPaths, resolveIsolation, SandboxRunner, WorktreeManager, type IsolationMode } from '@aperture/sandbox';
-import { snapshotTask, type NormalizedTask } from '@aperture/sources';
+import { defaultHiddenPaths, gitStdout, resolveIsolation, SandboxRunner, WorktreeManager, type IsolationMode } from '@aperture/sandbox';
+import { snapshotTask, taskContentDigest, type NormalizedTask } from '@aperture/sources';
 import { ApertureStore, newId, StorageLayout, ulid, type ContractRecord, type RunRecord, type RunState } from '@aperture/storage';
 import { SourceRegistry } from './sources.ts';
 import { assertTransition, isTerminal } from './state-machine.ts';
@@ -167,7 +167,7 @@ export class Harness {
 
     let proposal: { contract: ExecutionContract; notes: string[] };
     try {
-      proposal = await this.sources.proposeContract(task, this.config);
+      proposal = await this.sources.proposeContract(task, this.config, await this.repoContext(repoPath, task));
     } catch (err) {
       this.transition(runId, 'FAILED', `contract proposal failed: ${(err as Error).message}`);
       throw err;
@@ -185,6 +185,31 @@ export class Harness {
       return await this.worktrees.resolveRepoRoot(candidate.replace(/^~(?=\/)/, this.env.HOME ?? '~'));
     } catch {
       throw new HarnessError(`${candidate} is not inside a git repository; pass --repo <path> or map ${task.repository ?? 'the repository'} in config.repositories`, 'NOT_A_REPO');
+    }
+  }
+
+  private async repoContext(repoPath: string, task: NormalizedTask): Promise<{ trackedFiles: string[]; baselineRef: string }> {
+    const baselineRef = (task.repository ? this.config.repositories[task.repository]?.baseBranch : undefined) ?? 'HEAD';
+    const sha = await this.worktrees.resolveCommit(repoPath, baselineRef).catch(() => this.worktrees.resolveCommit(repoPath, 'HEAD'));
+    const listing = await gitStdout(repoPath, ['ls-tree', '-r', '-z', '--name-only', '--full-tree', sha]);
+    return { trackedFiles: listing.split('\0').filter(Boolean), baselineRef };
+  }
+
+  /**
+   * Re-fetches the source ticket and compares it with the pinned snapshot (§14 "source ticket
+   * changes mid-run"). Drift is reported, never applied: the approved contract stays authoritative.
+   */
+  async checkSourceDrift(runId: string): Promise<{ drifted: boolean; pinnedRevision: string; currentRevision?: string; error?: string }> {
+    const run = this.getRun(runId);
+    const task = this.store.getTask(run.taskId)!;
+    const pinned = JSON.parse(task.snapshotJson) as NormalizedTask;
+    try {
+      const current = await this.sources.fetch(pinned.sourceRef);
+      const drifted = taskContentDigest(current) !== taskContentDigest(pinned) || (pinned.sourceType === 'local' && current.revision !== pinned.revision);
+      if (drifted) this.emit(runId, 'source.drift.detected', { sourceRef: pinned.sourceRef, pinnedRevision: pinned.revision, currentRevision: current.revision });
+      return { drifted, pinnedRevision: pinned.revision, currentRevision: current.revision };
+    } catch (err) {
+      return { drifted: false, pinnedRevision: pinned.revision, error: (err as Error).message };
     }
   }
 
