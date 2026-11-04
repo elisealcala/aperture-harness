@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { contractWith, validContractInput } from '../../../tests/helpers/contracts.ts';
-import { analyzeContract } from './analysis.ts';
+import { analyzeContract, PLACEHOLDER } from './analysis.ts';
 import { parseContract } from './load.ts';
 
 function codes(contract: unknown, known?: Set<string>): string[] {
@@ -45,5 +45,31 @@ describe('analyzeContract', () => {
   it('warns when no check is required', () => {
     expect(codes(contractWith(['spec', 'checks'], [{ id: 'unit', commandId: 'unit', required: false }]))).toEqual(['warning:NO_REQUIRED_CHECKS']);
     expect(codes(contractWith(['spec', 'checks'], []))).toEqual(['warning:NO_REQUIRED_CHECKS']);
+  });
+
+  describe('NEEDS_EDIT placeholders', () => {
+    it('errors on a placeholder requirement and names it', () => {
+      const input = validContractInput();
+      input.spec.requirements = [{ id: 'R1', text: `${PLACEHOLDER}: state the acceptance criteria` }];
+      const findings = analyzeContract(parseContract(input));
+      expect(findings).toEqual([expect.objectContaining({ level: 'error', code: 'NEEDS_EDIT', message: expect.stringContaining('requirement R1') })]);
+    });
+
+    it('errors on placeholder writable/readable paths and the goal, listing every location in one finding', () => {
+      const input = validContractInput();
+      input.spec.goal = PLACEHOLDER;
+      input.spec.scope.writable = [PLACEHOLDER];
+      input.spec.scope.readable = [`${PLACEHOLDER}/**`];
+      const needsEdit = analyzeContract(parseContract(input)).filter((f) => f.code === 'NEEDS_EDIT');
+      expect(needsEdit).toHaveLength(1);
+      expect(needsEdit[0]!.level).toBe('error');
+      expect(needsEdit[0]!.message).toBe(`fill in the ${PLACEHOLDER} placeholders before approving (path ${PLACEHOLDER}, path ${PLACEHOLDER}/**, goal)`);
+    });
+
+    it('does not flag text that merely resembles the placeholder', () => {
+      const input = validContractInput();
+      input.spec.goal = 'Remove the EDIT_ME marker from docs';
+      expect(codes(input)).toEqual([]);
+    });
   });
 });
