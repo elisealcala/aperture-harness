@@ -2,6 +2,7 @@ import { Command, CommanderError } from 'commander';
 import type { GlobalOptions } from './context.ts';
 import { initCommand } from './commands/init.ts';
 import { diffCommand, logsCommand, statusCommand } from './commands/inspect.ts';
+import { answerCommand, cancelCommand, resumeCommand, reviewCommand, usageCommand, type AnswerOptions, type ResumeOptions, type ReviewOptions } from './commands/lifecycle.ts';
 import { runCommand, type RunCommandOptions } from './commands/run.ts';
 
 export function buildProgram(setExit: (code: number) => void): Command {
@@ -35,6 +36,7 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .option('--reduced-security', 'allow running without an OS sandbox (explicit reduced-isolation mode)')
     .option('-y, --yes', 'approve the proposed contract without prompting')
     .option('--script <file>', 'replay tool calls from a YAML script instead of calling a model')
+    .option('--answers <file>', 'YAML list of preauthorized answers ({match, answer}) for noninteractive runs')
     .option('--show-model-text', 'stream the model\'s visible text output')
     .option('-v, --verbose', 'show every tool request and model turn')
     .option('-q, --quiet', 'print only the final summary')
@@ -63,6 +65,56 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .description('show the run worktree diff against its baseline')
     .argument('<run-id>')
     .action(wrap((runId: string) => diffCommand(runId, globals())));
+
+  program
+    .command('resume')
+    .description('continue an interrupted or paused run from its persisted state')
+    .argument('<run-id>')
+    .option('--script <file>', 'replay tool calls from a YAML script (for runs started with --script)')
+    .option('--no-interactive', 'never prompt')
+    .option('--answers <file>', 'YAML list of preauthorized answers ({match, answer})')
+    .option('--show-model-text', 'stream the model\'s visible text output')
+    .option('-v, --verbose', 'show every tool request and model turn')
+    .option('-q, --quiet', 'print only the final summary')
+    .option('--filter <types>', 'comma-separated event type prefixes to show')
+    .action(wrap((runId: string, opts: ResumeOptions) => resumeCommand(runId, opts, globals())));
+
+  program
+    .command('answer')
+    .description('answer an open question or decide a scope request')
+    .argument('<run-id>')
+    .argument('<question-id>')
+    .argument('[answer...]', 'free-form answer text')
+    .option('--choice <n>', 'pick one of the offered choices (1-based)')
+    .option('--approve', 'approve a scope change request (creates a new contract revision)')
+    .option('--deny', 'deny a scope change request')
+    .option('--rationale <text>', 'recorded rationale')
+    .action(wrap((runId: string, questionId: string, words: string[], opts: AnswerOptions) => answerCommand(runId, questionId, words, opts, globals())));
+
+  program
+    .command('cancel')
+    .description('cancel a run')
+    .argument('<run-id>')
+    .option('--reason <text>', 'recorded reason')
+    .option('--cleanup', 'also remove the run worktree and branch')
+    .action(wrap((runId: string, opts: { reason?: string; cleanup?: boolean }) => cancelCommand(runId, opts, globals())));
+
+  program
+    .command('usage')
+    .description('per-request token, cache and cost ledger for a run')
+    .argument('<run-id>')
+    .option('--format <format>', 'text or json', 'text')
+    .action(wrap((runId: string, opts: { format?: string }) => usageCommand(runId, opts, globals())));
+
+  program
+    .command('review')
+    .description('review verification evidence and approve the diff')
+    .argument('<run-id>')
+    .option('--accept-local', 'accept the result locally (COMPLETED_LOCAL)')
+    .option('--approve', 'approve the diff for a pull request')
+    .option('--acknowledge-unverified', 'accept unverified requirements on manual review')
+    .option('--reject', 'reject the diff and cancel the run')
+    .action(wrap((runId: string, opts: ReviewOptions) => reviewCommand(runId, opts, globals())));
 
   return program;
 }

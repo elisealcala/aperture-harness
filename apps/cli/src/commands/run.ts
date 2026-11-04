@@ -1,4 +1,4 @@
-import { Orchestrator, isTerminal, type Harness } from '@aperture/core';
+import { loadPreauthorizedAnswers, Orchestrator, isTerminal, type Harness } from '@aperture/core';
 import type { RunRecord } from '@aperture/storage';
 import { openHarness, type GlobalOptions } from '../context.ts';
 import { createExecutor } from '../executors.ts';
@@ -18,6 +18,7 @@ export interface RunCommandOptions {
   verbose?: boolean;
   quiet?: boolean;
   filter?: string;
+  answers?: string;
 }
 
 export const EXIT = { OK: 0, ERROR: 1, NOT_COMPLETED: 2, WAITING: 3 } as const;
@@ -86,7 +87,12 @@ export async function runCommand(reference: string, opts: RunCommandOptions, glo
     const task = harness.store.getTask(run.taskId)!;
     const choice = createInteraction({ interactive: opts.interactive, preapproveContract: Boolean(opts.yes) || (task.sourceType === 'local' && !opts.interactive) });
     closeInteraction = choice.close;
-    const final = await new Orchestrator(harness).drive(run.runId, { executor, interaction: choice.interaction, signal: controller.signal });
+    const final = await new Orchestrator(harness).drive(run.runId, {
+      executor,
+      interaction: choice.interaction,
+      signal: controller.signal,
+      ...(opts.answers ? { preauthorized: loadPreauthorizedAnswers(opts.answers) } : {}),
+    });
     printSummary(harness, final);
     return exitCodeFor(final);
   } finally {
