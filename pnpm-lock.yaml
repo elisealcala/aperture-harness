@@ -141,6 +141,9 @@ importers:
       '@aperture/sandbox':
         specifier: workspace:*
         version: link:../sandbox
+      '@aperture/storage':
+        specifier: workspace:*
+        version: link:../storage
       picomatch:
         specifier: ^4.0.7
         version: 4.0.7

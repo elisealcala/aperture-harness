@@ -10,6 +10,7 @@
     "@aperture/contracts": "workspace:*",
     "@aperture/events": "workspace:*",
     "@aperture/sandbox": "workspace:*",
+    "@aperture/storage": "workspace:*",
     "picomatch": "^4.0.7",
     "zod": "^4.6.7"
   },
