@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { parseContract, parseUserConfig } from '../../packages/contracts/src/index.ts';
 import { Harness } from '../../packages/core/src/index.ts';
 import type { ContractInput } from '../../packages/contracts/src/index.ts';
+import type { ToolGateway } from '../../packages/gateway/src/index.ts';
+import type { RunRecord } from '../../packages/storage/src/index.ts';
 import { createFixtureRepo, type FixtureRepo } from './repo.ts';
 import type { TempDirs } from './tmp.ts';
 
@@ -10,7 +12,9 @@ export interface FixtureContractOptions {
   /** Extra `spec.commands` entries merged into the defaults. */
   extraCommands?: Record<string, { exec: string; args: string[]; timeoutSeconds?: number }>;
   /** Extra `spec.checks` entries appended to the defaults. */
-  extraChecks?: Array<{ id: string; commandId: string; required: boolean }>;
+  extraChecks?: Array<{ id: string; commandId: string; required: boolean; covers?: string[] }>;
+  /** Last-step edit of the contract input (limits, cache, scope, check flags ...). */
+  mutate?: (contract: ContractInput) => void;
 }
 
 /**
@@ -20,7 +24,7 @@ export interface FixtureContractOptions {
  * permitted patch lands).
  */
 export function fixtureContract(options: FixtureContractOptions = {}): ContractInput {
-  return {
+  const contract: ContractInput = {
     apiVersion: 'aperture.dev/v1',
     kind: 'ExecutionContract',
     metadata: { id: 'LOCAL-142', source: { type: 'local' }, baselineRef: 'HEAD', title: 'Add optional session metadata' },
@@ -48,6 +52,8 @@ export function fixtureContract(options: FixtureContractOptions = {}): ContractI
       limits: { maxModelTurns: 12, maxPatchAttempts: 8, maxCostUsd: 0.5, maxWallClockMinutes: 30 },
     },
   };
+  options.mutate?.(contract);
+  return contract;
 }
 
 export interface HarnessFixture {
@@ -67,4 +73,28 @@ export function createHarnessFixture(tmp: TempDirs, contract: ContractInput = fi
   const contractPath = join(root, 'contract.yaml');
   writeFileSync(contractPath, harness.contractYaml(parseContract(contract)));
   return { root, repo, storageDir, contractPath, harness };
+}
+
+export interface PreparedRun {
+  fx: HarnessFixture;
+  run: RunRecord;
+  worktree: string;
+  gateway: ToolGateway;
+}
+
+/** Ingest -> approve -> prepare (reduced isolation), returning a gateway bound to the EXECUTING run. */
+export async function prepareRun(tmp: TempDirs, contract: ContractInput = fixtureContract()): Promise<PreparedRun> {
+  const fx = createHarnessFixture(tmp, contract);
+  const ingested = await fx.harness.ingest(fx.contractPath, { repoPath: fx.repo.path, isolation: 'reduced', questionMode: 'noninteractive' });
+  fx.harness.approvePending(ingested.runId, 'test');
+  fx.harness.transition(ingested.runId, 'PREPARING', 'contract approved');
+  const run = await fx.harness.prepare(ingested.runId);
+  return { fx, run, worktree: run.worktreePath!, gateway: fx.harness.createGateway(run) };
+}
+
+/** Simulates a process restart: closes the fixture's harness and opens a fresh one on the same storage. */
+export function reopenHarness(fx: HarnessFixture): Harness {
+  fx.harness.close();
+  fx.harness = new Harness({ config: parseUserConfig({}), storageDir: fx.storageDir });
+  return fx.harness;
 }

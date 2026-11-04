@@ -56,6 +56,29 @@ export const SESSION_METADATA_PATCH = [
   '',
 ].join('\n');
 
+/** SESSION_TS after SESSION_METADATA_PATCH is applied exactly once. */
+export const SESSION_TS_WITH_METADATA = [
+  '// SESSION_MARKER: session endpoint',
+  'export interface SessionInput {',
+  '  userId: string;',
+  '  metadata?: Record<string, string>;',
+  '}',
+  '',
+  'export function createSession(input: SessionInput) {',
+  '  return { userId: input.userId, metadata: input.metadata };',
+  '}',
+  '',
+].join('\n');
+
+/**
+ * A permitted but insufficient patch for SESSION_TS: appends a comment that does not mention
+ * metadata, so `has-metadata` still fails. SESSION_METADATA_PATCH still applies on top of it.
+ */
+export const SESSION_COMMENT_PATCH = ['--- a/src/api/session.ts', '+++ b/src/api/session.ts', '@@ -8,1 +8,2 @@', ' }', '+// reviewed', ''].join('\n');
+
+/** Creates `src/api/types.ts` (outside the fixture contract's writable scope until amended). */
+export const NEW_TYPES_FILE_PATCH = ['--- /dev/null', '+++ b/src/api/types.ts', '@@ -0,0 +1 @@', '+export type Metadata = Record<string, string>;', ''].join('\n');
+
 export const PACKAGE_JSON = [
   '{',
   '  "name": "aperture-fixture",',

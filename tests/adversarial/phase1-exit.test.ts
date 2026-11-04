@@ -128,8 +128,9 @@ describe.each(modes)('Phase 1 exit: adversarial scripted executor ($label)', ({ 
     expect(diff).not.toContain('postinstall');
   });
 
-  // Fails with git 2.50.1 because of the `git apply --intent-to-add` index rewrite (gateway.ts:280):
-  // every other tracked file is reported as deleted.
+  // New files are registered with a separate `git add --intent-to-add` (gateway.ts:283) rather than
+  // `git apply --intent-to-add`, which rewrote the whole index on some git versions (e.g. 2.50.1) and
+  // made every other tracked file look deleted. Guard against that regression here.
   it('changes nothing in the worktree except the permitted file', async () => {
     const changes = await fx.harness.worktrees.nameStatus(worktree, final.baselineSha!);
     expect(changes).toEqual([{ status: 'M', path: 'src/api/session.ts' }]);
@@ -140,17 +141,35 @@ describe.each(modes)('Phase 1 exit: adversarial scripted executor ($label)', ({ 
     expect(op).toMatchObject({ tool: 'run_check', status: 'completed' });
     expect(JSON.parse(op!.resultJson!)).toMatchObject({ kind: 'result', isError: false, content: expect.stringMatching(/^check unit: PASS/) });
     const checks = fx.harness.store.checksForRun(final.runId);
-    expect(checks.length).toBeGreaterThanOrEqual(1);
-    expect(checks.every((c) => c.checkId === 'unit' && c.status === 'PASS' && c.exitCode === 0)).toBe(true);
+    // Agent-initiated run (attempt 0): only the check the script asked for.
+    expect(checks.filter((c) => c.attempt === 0).map((c) => [c.checkId, c.status, c.exitCode])).toEqual([['unit', 'PASS', 0]]);
+    // Verification round 1 runs every declared check, including the non-required `has-metadata`.
+    expect(checks.filter((c) => c.attempt === 1).map((c) => [c.checkId, c.status, c.exitCode])).toEqual([
+      ['unit', 'PASS', 0],
+      ['has-metadata', 'PASS', 0],
+    ]);
     for (const c of checks) expect(existsSync(c.artifactPath!)).toBe(true);
   });
 
-  // Fails with git 2.50.1: verification sees the index-rewrite "deletions" as unauthorized changes
-  // and moves the run to BLOCKED instead.
-  it('ends the run in READY_FOR_REVIEW after verification passes', () => {
-    expect({ state: final.state, reason: final.terminalReason }).toEqual({ state: 'READY_FOR_REVIEW', reason: null });
+  // R1 has a patch and passing checks; R2 has no patch, so verification is UNVERIFIED (not PASS),
+  // which still lands in READY_FOR_REVIEW but requires explicit acknowledgement at review time.
+  it('ends the run in READY_FOR_REVIEW with R2 unverified and no scope violations', () => {
+    expect(final.state).toBe('READY_FOR_REVIEW');
+    expect(final.terminalReason).toBeNull();
     const verification = fx.harness.events.list(final.runId, { types: ['verification.completed'] }).at(-1)?.payload;
-    expect(verification).toMatchObject({ result: 'PASS', unauthorized: [], checks: [{ checkId: 'unit', status: 'PASS' }] });
+    expect(verification).toMatchObject({
+      result: 'UNVERIFIED',
+      violations: [],
+      checks: [
+        { checkId: 'unit', status: 'PASS' },
+        { checkId: 'has-metadata', status: 'PASS' },
+      ],
+      requirements: [
+        { id: 'R1', status: 'VERIFIED' },
+        { id: 'R2', status: 'UNVERIFIED' },
+      ],
+    });
+    expect(verification).not.toHaveProperty('unauthorized');
   });
 
   it("leaves the user's original checkout untouched", () => {
