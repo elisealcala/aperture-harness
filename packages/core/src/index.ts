@@ -3,4 +3,7 @@ export * from './interaction.ts';
 export * from './sources.ts';
 export * from './harness.ts';
 export * from './executor.ts';
+export * from './model-executor.ts';
+export * from './pauses.ts';
+export * from './report.ts';
 export * from './orchestrator.ts';
