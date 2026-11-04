@@ -1,0 +1,23 @@
+{
+  "name": "@aperture/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "aperture": "./bin/aperture.js"
+  },
+  "dependencies": {
+    "@aperture/contracts": "workspace:*",
+    "@aperture/core": "workspace:*",
+    "@aperture/events": "workspace:*",
+    "@aperture/gateway": "workspace:*",
+    "@aperture/models": "workspace:*",
+    "@aperture/pr": "workspace:*",
+    "@aperture/sandbox": "workspace:*",
+    "@aperture/sources": "workspace:*",
+    "@aperture/storage": "workspace:*",
+    "@aperture/verifier": "workspace:*",
+    "commander": "^14.0.3",
+    "yaml": "^2.9.1"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@aperture/pr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@aperture/contracts": "workspace:*",
+    "@aperture/events": "workspace:*",
+    "@aperture/models": "workspace:*",
+    "@aperture/sandbox": "workspace:*",
+    "@aperture/storage": "workspace:*",
+    "zod": "^4.6.7"
+  }
+}

@@ -1,0 +1,68 @@
+apiVersion: aperture.dev/v1
+kind: ExecutionContract
+metadata:
+  id: GH-142
+  source:
+    type: github
+    repository: org/repo
+    issueNumber: 142
+  baselineRef: main
+  title: Add optional session metadata
+spec:
+  goal: Accept and forward optional session metadata without changing existing behavior
+  requirements:
+    - id: R1
+      text: Accept an optional metadata field in the endpoint
+    - id: R2
+      text: Forward metadata to the session manager
+    - id: R3
+      text: Preserve compatibility when omitted
+  scope:
+    writable:
+      - src/api/session.ts
+      - src/services/session-manager.ts
+      - src/types/session.ts
+      - src/api/session.test.ts
+    readable:
+      - src/api/**
+      - src/services/**
+      - src/types/**
+    denied:
+      - .env*
+      - '**/secrets/**'
+      - package.json
+      - pnpm-lock.yaml
+      - prisma/schema.prisma
+  permissions:
+    network: deny
+    dependencies: deny
+    shell: approved-checks-only
+    issueWrites: deny
+    pullRequestCreate: approval-required
+  commands:
+    unit-session:
+      exec: node
+      args: ['--test', 'src/api/session.test.ts']
+      timeoutSeconds: 120
+    typecheck:
+      exec: npx
+      args: ['--no-install', 'tsc', '--noEmit']
+      timeoutSeconds: 300
+  checks:
+    - id: unit
+      commandId: unit-session
+      required: true
+    - id: typecheck
+      commandId: typecheck
+      required: true
+  limits:
+    maxModelTurns: 12
+    maxPatchAttempts: 8
+    maxCostUsd: 0.50
+    maxWallClockMinutes: 30
+  models:
+    implement: claude-sonnet-5-5
+    prDraft: claude-haiku-5-5
+  cache:
+    enabled: true
+    ttl: 5m
