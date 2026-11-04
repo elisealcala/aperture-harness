@@ -13,7 +13,7 @@ worker whose every action passes through a deterministic policy gateway. PR text
 ```bash
 pnpm install
 pnpm aperture init                       # writes ~/.config/aperture/config.yaml
-export ANTHROPIC_API_KEY=...             # or an `ant auth login` profile
+cp .env.example .env && chmod 600 .env    # add ANTHROPIC_API_KEY (or export it in your shell)
 
 # Local contract (preapproved with --no-interactive), GitHub issue, or Linear issue
 pnpm aperture run ./tasks/ENG-123.yaml --repo ~/code/app --no-interactive
@@ -71,8 +71,19 @@ models:
   registry: {}            # pricing overrides (USD / MTok); unknown models are refused
 ```
 
-Secrets are read from environment variables only (`ANTHROPIC_API_KEY`, `GITHUB_TOKEN` or `gh auth
-token`, `LINEAR_API_KEY`); inline secrets in YAML are rejected, and secret values are redacted from logs.
+### Secrets
+
+Keys come from environment variables (`ANTHROPIC_API_KEY`, `GITHUB_TOKEN` or `gh auth token`,
+`LINEAR_API_KEY`). You can export them in your shell or put them in an env file:
+
+```bash
+cp .env.example .env && chmod 600 .env   # then fill in ANTHROPIC_API_KEY
+```
+
+The CLI loads, in order, `<harness checkout>/.env` and `~/.config/aperture/.env` (or only the file given
+by `--env-file` / `$APERTURE_ENV_FILE`). Variables already set in your shell win over the files. The
+target repository's own `.env` is never loaded, env files are hidden from sandboxed check commands, and
+secret values are redacted from logs. Inline secrets in the config YAML are rejected.
 
 ## Development
 

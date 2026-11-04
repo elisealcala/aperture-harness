@@ -1,9 +1,12 @@
 import { defaultConfigPath, loadUserConfig, resolveStorageDirectory, type UserConfig } from '@aperture/contracts';
 import { Harness } from '@aperture/core';
+import { fileURLToPath } from 'node:url';
+import { envFileCandidates } from './env-file.ts';
 
 export interface GlobalOptions {
   config?: string;
   home?: string;
+  envFile?: string;
 }
 
 /** Environment variable values that must never appear in logs, whatever field they end up in. */
@@ -21,5 +24,8 @@ export function loadConfig(options: GlobalOptions, env: NodeJS.ProcessEnv = proc
 
 export function openHarness(options: GlobalOptions, env: NodeJS.ProcessEnv = process.env, extra: Partial<ConstructorParameters<typeof Harness>[0]> = {}): Harness {
   const { config, storageDir } = loadConfig(options, env);
-  return new Harness({ config, storageDir, env, redactLiterals: secretLiterals(config, env), ...extra });
+  const harnessRoot = fileURLToPath(new URL('../../..', import.meta.url));
+  // Hide every env file the CLI may have loaded (both defaults, incl. $XDG_CONFIG_HOME, and any explicit one).
+  const envFiles = [...new Set([...envFileCandidates({ harnessRoot, env }), ...envFileCandidates({ harnessRoot, env: { ...env, APERTURE_ENV_FILE: undefined } })])];
+  return new Harness({ config, storageDir, env, redactLiterals: secretLiterals(config, env), extraHiddenPaths: envFiles, ...extra });
 }

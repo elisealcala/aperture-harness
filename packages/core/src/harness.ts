@@ -29,6 +29,8 @@ export interface HarnessOptions {
   sources?: SourceRegistry;
   /** Secret values to scrub from every persisted event (e.g. resolved API keys). */
   redactLiterals?: readonly string[];
+  /** Additional files/directories sandboxed checks must not read (e.g. env files with secrets). */
+  extraHiddenPaths?: readonly string[];
 }
 
 export interface IngestOptions {
@@ -349,7 +351,7 @@ export class Harness {
     return new SandboxRunner(this.isolationMode(run), {
       worktreePath: run.worktreePath,
       tmpDir: this.layout.runTmpDir(run.runId),
-      hiddenPaths: [...defaultHiddenPaths(this.env.HOME), this.layout.databasePath, join(this.layout.root, 'runs')],
+      hiddenPaths: [...defaultHiddenPaths(this.env.HOME), this.layout.databasePath, join(this.layout.root, 'runs'), ...(this.options.extraHiddenPaths ?? [])],
     }, this.env);
   }
 

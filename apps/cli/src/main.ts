@@ -1,10 +1,15 @@
+import { fileURLToPath } from 'node:url';
 import { Command, CommanderError } from 'commander';
+import { envFileCandidates, loadEnvFiles } from './env-file.ts';
 import type { GlobalOptions } from './context.ts';
 import { initCommand } from './commands/init.ts';
 import { diffCommand, logsCommand, statusCommand } from './commands/inspect.ts';
 import { answerCommand, attachCommand, cancelCommand, resumeCommand, reviewCommand, usageCommand, type AnswerOptions, type ResumeOptions, type ReviewOptions } from './commands/lifecycle.ts';
 import { prCreateCommand, prDraftCommand } from './commands/pr.ts';
 import { runCommand, type RunCommandOptions } from './commands/run.ts';
+
+/** Root of the harness checkout (apps/cli/src → ../../..). */
+export const HARNESS_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 
 export function buildProgram(setExit: (code: number) => void): Command {
   const program = new Command();
@@ -13,10 +18,21 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .description('Budget-controlled, contract-driven coding execution harness')
     .option('--config <path>', 'config file (default: ~/.config/aperture/config.yaml or $APERTURE_CONFIG)')
     .option('--home <dir>', 'storage directory (default: config storage.directory or $APERTURE_HOME)')
+    .option('--env-file <path>', 'load KEY=value secrets from this file (default: <harness>/.env, then ~/.config/aperture/.env)')
     .showHelpAfterError()
     .exitOverride();
 
   const globals = (): GlobalOptions => program.opts<GlobalOptions>();
+  // Load env files before any command opens the harness, so keys and redaction see them.
+  program.hook('preAction', () => {
+    const explicit = program.opts<{ envFile?: string }>().envFile;
+    const paths = envFileCandidates({ harnessRoot: HARNESS_ROOT, ...(explicit ? { explicit } : {}) });
+    for (const result of loadEnvFiles(paths, process.env, { required: Boolean(explicit ?? process.env.APERTURE_ENV_FILE) })) {
+      for (const warning of result.warnings) process.stderr.write(`warning: ${warning}\n`);
+    }
+    // Record an explicit file so the harness also hides it from sandboxed checks.
+    if (explicit) process.env.APERTURE_ENV_FILE = paths[0];
+  });
   const wrap =
     <A extends unknown[]>(fn: (...args: A) => Promise<number>) =>
     async (...args: A) => {

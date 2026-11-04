@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DEFAULT_CONFIG_YAML } from '@aperture/contracts';
 import { detectIsolation } from '@aperture/sandbox';
+import { existsSync as exists } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { loadConfig, type GlobalOptions } from '../context.ts';
+import { envFileCandidates } from '../env-file.ts';
 
 export async function initCommand(globals: GlobalOptions): Promise<number> {
   const { configPath: path } = loadConfig(globals);
@@ -23,6 +26,9 @@ export async function initCommand(globals: GlobalOptions): Promise<number> {
     `isolation: ${isolation ?? 'none available'} (policy: ${config.runtime.isolation})`,
     `anthropic: ${process.env[config.providers.anthropic.apiKeyEnv] ? `${config.providers.anthropic.apiKeyEnv} is set` : `${config.providers.anthropic.apiKeyEnv} is not set`}`,
   ];
+  const harnessRoot = fileURLToPath(new URL('../../../..', import.meta.url));
+  const envFiles = envFileCandidates({ harnessRoot, ...(globals.envFile ? { explicit: globals.envFile } : {}) });
+  lines.push(`env files: ${envFiles.map((f) => `${f} (${exists(f) ? 'found' : 'missing'})`).join(', ')}`);
   if (!isolation && config.runtime.isolation === 'required') lines.push('warning: no OS sandbox found; runs will fail closed unless you pass --reduced-security');
   process.stdout.write(`${lines.join('\n')}\n`);
   return 0;
