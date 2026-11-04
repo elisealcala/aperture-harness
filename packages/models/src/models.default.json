@@ -1,0 +1,17 @@
+{
+  "_comment": "USD per million tokens at specification date (docs/system-design.md §8). Prices are configuration data: override them in config.models.registry; refresh before release.",
+  "claude-sonnet-5-5": {
+    "pricing": { "inputPerMTok": 2.0, "outputPerMTok": 10.0, "cacheWrite5mPerMTok": 2.5, "cacheWrite1hPerMTok": 4.0, "cacheReadPerMTok": 0.1 },
+    "maxOutputTokens": 128000,
+    "contextWindow": 1000000
+  },
+  "claude-haiku-5-5": {
+    "pricing": { "inputPerMTok": 0.1, "outputPerMTok": 0.5, "cacheWrite5mPerMTok": 0.125, "cacheWrite1hPerMTok": 0.2, "cacheReadPerMTok": 0.01 },
+    "longContext": {
+      "thresholdTokens": 100000,
+      "pricing": { "inputPerMTok": 0.5, "outputPerMTok": 2.5, "cacheWrite5mPerMTok": 0.625, "cacheWrite1hPerMTok": 1.0, "cacheReadPerMTok": 0.05 }
+    },
+    "maxOutputTokens": 128000,
+    "contextWindow": 1000000
+  }
+}
