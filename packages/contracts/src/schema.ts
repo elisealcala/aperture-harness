@@ -18,8 +18,17 @@ export const RepoGlobSchema = z
     if (problem) ctx.addIssue({ code: 'custom', message: `${JSON.stringify(value)}: ${problem}` });
   });
 
+/** True when the string contains ASCII control characters (including NUL and DEL). */
+export function hasControlChars(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
 export function repoPatternProblem(value: string): string | undefined {
-  if (value.includes('\0') || /[\u0000-\u001f]/.test(value)) return 'contains control characters';
+  if (hasControlChars(value)) return 'contains control characters';
   if (value.includes('\\')) return 'backslashes are not allowed; use forward slashes';
   if (value.startsWith('/') || /^[A-Za-z]:/.test(value)) return 'absolute paths are not allowed';
   if (value.startsWith('~')) return 'home-relative paths are not allowed';

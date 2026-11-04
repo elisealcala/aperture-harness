@@ -277,7 +277,10 @@ export class ToolGateway {
       const outcome: ToolOutcome = { kind: 'result', toolCallId: id, isError: true, reasonCode: 'PATCH_DOES_NOT_APPLY', content: `REJECTED (PATCH_DOES_NOT_APPLY): ${message}` };
       return this.record(id, 'propose_patch', opInput, outcome, 'failed');
     }
-    await git(root, ['apply', '--recount', '--whitespace=nowarn', '--intent-to-add', '-p1', '-'], { input: canonical });
+    await git(root, ['apply', '--recount', '--whitespace=nowarn', '-p1', '-'], { input: canonical });
+    // Register new files as intent-to-add so they appear in `git diff <baseline>`. (Passing
+    // --intent-to-add to `git apply` itself rewrites the whole index on some git versions.)
+    if (kind === 'create') await git(root, ['add', '--intent-to-add', '--', path]);
     if (kind !== 'delete') {
       const after = this.policy.checkWrite(path);
       if (!after.allowed || !after.exists) throw new Error(`post-apply validation failed for ${path}: ${after.allowed ? 'missing' : after.message}`);
@@ -314,6 +317,9 @@ export class ToolGateway {
     const opInput = JSON.parse(inputJson) as { path: string; canonicalPatch: string; requirementIds: string[] };
     this.options.events.append(this.runId, 'recovery.reconciled', { toolCallId: request.id, path: opInput.path, state });
     if (state === 'applied') {
+      if (opInput.canonicalPatch.includes('\nnew file mode 100644\n')) {
+        await git(this.policy.worktreeRoot, ['add', '--intent-to-add', '--', opInput.path]);
+      }
       return this.complete(request.id, 'propose_patch', opInput, `applied patch to ${opInput.path} (recovered after interruption) for ${opInput.requirementIds.join(', ')}`, { path: opInput.path, requirementIds: opInput.requirementIds, recovered: true, diff: opInput.canonicalPatch }, false, 'applied');
     }
     if (state === 'not_applied') {

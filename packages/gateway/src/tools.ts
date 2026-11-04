@@ -80,7 +80,7 @@ export type ParsedToolRequest =
 
 /** Rejects unsupported tools and malformed arguments before anything executes. */
 export function parseToolRequest(raw: { id: string; name: string; input: unknown }): ParsedToolRequest {
-  if (!(raw.name in ToolInputSchemas)) {
+  if (!Object.hasOwn(ToolInputSchemas, raw.name)) {
     return { ok: false, reasonCode: 'UNKNOWN_TOOL', message: `unsupported tool ${JSON.stringify(raw.name)}; available: ${TOOL_NAMES.join(', ')}` };
   }
   const name = raw.name as ToolName;

@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, sep } from 'node:path';
-import { compileGlobs } from '@aperture/contracts';
+import { compileGlobs, hasControlChars } from '@aperture/contracts';
 import type { ReasonCode } from '@aperture/events';
 
 export type PathDecision =
@@ -23,7 +23,7 @@ function deny(reasonCode: ReasonCode, message: string, path?: string): PathDecis
  */
 export function normalizeRepoPath(input: string): { ok: true; path: string } | { ok: false; reasonCode: ReasonCode; message: string } {
   if (input.length === 0 || input.length > 512) return { ok: false, reasonCode: 'PATH_INVALID', message: 'path must be 1-512 characters' };
-  if (/[\u0000-\u001f\u007f]/.test(input)) return { ok: false, reasonCode: 'PATH_INVALID', message: 'path contains control characters' };
+  if (hasControlChars(input)) return { ok: false, reasonCode: 'PATH_INVALID', message: 'path contains control characters' };
   if (input.includes('\\')) return { ok: false, reasonCode: 'PATH_INVALID', message: 'use forward slashes in paths' };
   if (input.startsWith('/') || /^[A-Za-z]:/.test(input) || input.startsWith('~')) {
     return { ok: false, reasonCode: 'PATH_ABSOLUTE', message: 'absolute and home-relative paths are not allowed' };

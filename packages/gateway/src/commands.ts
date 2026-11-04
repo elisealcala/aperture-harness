@@ -19,9 +19,10 @@ export class CommandRegistry {
   resolve(checkId: string): ResolvedCheck | undefined {
     const check = this.contract.contract.spec.checks.find((c) => c.id === checkId);
     if (!check) return undefined;
-    const fromContract = this.contract.contract.spec.commands[check.commandId];
+    const contractCommands = this.contract.contract.spec.commands;
+    const fromContract = Object.hasOwn(contractCommands, check.commandId) ? contractCommands[check.commandId] : undefined;
     if (fromContract) return { check, command: fromContract, source: 'contract' };
-    const fromConfig = this.configCommands[check.commandId];
+    const fromConfig = Object.hasOwn(this.configCommands, check.commandId) ? this.configCommands[check.commandId] : undefined;
     if (fromConfig) return { check, command: fromConfig, source: 'config' };
     return undefined;
   }

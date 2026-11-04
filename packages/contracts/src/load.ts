@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { ExecutionContractSchema, type ExecutionContract } from './schema.ts';
 
 export class ContractValidationError extends Error {

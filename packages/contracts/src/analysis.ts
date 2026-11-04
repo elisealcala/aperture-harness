@@ -25,7 +25,7 @@ export function analyzeContract(contract: ExecutionContract, knownCommandIds: Re
   }
 
   for (const check of checks) {
-    if (!(check.commandId in commands) && !knownCommandIds.has(check.commandId)) {
+    if (!Object.hasOwn(commands, check.commandId) && !knownCommandIds.has(check.commandId)) {
       findings.push({ level: 'error', code: 'UNKNOWN_COMMAND', message: `check ${check.id} references command ${check.commandId}, which is not defined in the contract or user config` });
     }
   }

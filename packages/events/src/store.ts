@@ -64,10 +64,10 @@ export class EventStore {
       );
       return env;
     });
-    this.project(envelope);
+    this.project(envelope as EventEnvelope);
     for (const listener of this.listeners) {
       try {
-        listener(envelope);
+        listener(envelope as EventEnvelope);
       } catch {
         // A failing renderer must never break the durable log.
       }
