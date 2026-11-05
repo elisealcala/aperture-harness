@@ -137,6 +137,14 @@ describe('main --help', () => {
     expect(out).not.toContain('Typical workflow');
   });
 
+  it('`pr draft --help` offers the opt-in --draft-pr flag and not --no-draft-pr', async () => {
+    expect(await main(argv('pr', 'draft', '--help'))).toBe(0);
+    const out = stdout();
+    expect(out).toMatch(/^ {2}--draft-pr\b/m);
+    expect(out).not.toContain('--no-draft-pr');
+    expect(out).toContain('aperture pr draft <run> --draft-pr');
+  });
+
   it('`init --help` has no Examples section', async () => {
     expect(await main(argv('init', '--help'))).toBe(0);
     const out = stdout();

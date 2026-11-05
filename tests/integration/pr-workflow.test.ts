@@ -59,8 +59,8 @@ interface Reviewed {
 }
 
 /** github:org/repo#142 → approved → implemented → verified → review approved (not accepted locally). */
-async function reviewedRun(prTurns: ScriptedResponder[] = [draftFromEvidence], options: { origin?: string } = {}): Promise<Reviewed> {
-  fx = createTicketFixture(tmp, options.origin ? { origin: options.origin } : {});
+async function reviewedRun(prTurns: ScriptedResponder[] = [draftFromEvidence], options: { origin?: string; config?: Record<string, unknown> } = {}): Promise<Reviewed> {
+  fx = createTicketFixture(tmp, { ...(options.origin ? { origin: options.origin } : {}), ...(options.config ? { config: options.config } : {}) });
   const ingested = await ingestTicket(fx, 'github:org/repo#142');
   const { final, orchestrator } = await driveTicket(fx, ingested.runId);
   expect(final.state).toBe('READY_FOR_REVIEW');
@@ -122,12 +122,12 @@ describe('AT-12: Haiku PR draft', () => {
       fallback: false,
       problems: [],
       diffSha256: run.reviewDiffSha256,
-      draftPr: true,
+      draftPr: false,
     });
     expect(transitions(run.runId).slice(-2)).toEqual(['READY_FOR_REVIEW->PR_DRAFTING', 'PR_DRAFTING->PR_APPROVAL']);
     expect(fx.harness.getRun(run.runId).state).toBe('PR_APPROVAL');
     expect(fx.harness.events.list(run.runId, { types: ['pr.draft.created'] })[0]?.payload).toMatchObject({ modelId: HAIKU, fallback: false });
-    expect(fx.harness.events.list(run.runId, { types: ['pr.approval.requested'] })[0]?.payload).toEqual({ repository: 'org/repo', branch: run.branch, base: 'main', title: stored.title, draftPr: true });
+    expect(fx.harness.events.list(run.runId, { types: ['pr.approval.requested'] })[0]?.payload).toEqual({ repository: 'org/repo', branch: run.branch, base: 'main', title: stored.title, draftPr: false });
 
     const path = join(fx.harness.layout.runDir(run.runId), 'pr-draft.json');
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(stored);
@@ -233,9 +233,9 @@ describe('AT-13: publishing without approval', () => {
       base: 'main',
       title: stored.title,
       body: stored.body,
-      draftPr: true,
+      draftPr: false,
       changedFiles: ['M src/api/session.ts'],
-      action: `commit 1 file(s) on ${run.branch}, push to origin (org/repo), open a draft PR into main`,
+      action: `commit 1 file(s) on ${run.branch}, push to origin (org/repo), open a ready-for-review PR into main`,
     });
     expect([pusher.pushes, api.finds, api.creates]).toEqual([[], [], []]);
   });
@@ -249,7 +249,7 @@ describe('AT-13: publishing without approval', () => {
 });
 
 describe('AT-14: publication and duplicate-PR protection', () => {
-  it('commits exactly the reviewed diff, pushes once, creates one draft PR and records it', async () => {
+  it('commits exactly the reviewed diff, pushes once, creates one ready-for-review PR and records it', async () => {
     const { run, api, pusher, workflow } = await reviewedRun();
     const stored = await workflow.draft(run.runId);
     const userHead = gitSync(fx.repo.path, ['rev-parse', 'main']).trim();
@@ -271,7 +271,7 @@ describe('AT-14: publication and duplicate-PR protection', () => {
 
     expect(pusher.pushes).toEqual([{ worktreePath: worktree, branch: run.branch }]);
     expect(api.finds).toEqual([{ owner: 'org', repo: 'repo', branch: run.branch }]);
-    expect(api.creates).toEqual([{ owner: 'org', repo: 'repo', input: { title: stored.title, body: stored.body, head: run.branch, base: 'main', draft: true } }]);
+    expect(api.creates).toEqual([{ owner: 'org', repo: 'repo', input: { title: stored.title, body: stored.body, head: run.branch, base: 'main', draft: false } }]);
 
     expect(fx.harness.getRun(run.runId).state).toBe('PR_CREATED');
     const publication = fx.harness.store.getPublication(run.runId)!;
@@ -337,6 +337,55 @@ describe('AT-14: publication and duplicate-PR protection', () => {
     api.failNextCreateAfterCommit = new SourceError('GitHub rejected the pull request: Validation Failed', 'INVALID_CONTENT');
     await expect(workflow.publish(run.runId, { approved: true, actor: 'alice' })).rejects.toMatchObject({ code: 'INVALID_CONTENT' });
     expect(fx.harness.getRun(run.runId)).toMatchObject({ state: 'BLOCKED', terminalReason: expect.stringContaining('PR publication failed') });
+  });
+});
+
+describe('draft vs ready-for-review PRs', () => {
+  it('opens a ready-for-review PR by default (createPullRequest receives draft: false)', async () => {
+    const { run, api, workflow } = await reviewedRun();
+    expect(fx.harness.config.pr.draftByDefault).toBe(false);
+    const stored = await workflow.draft(run.runId);
+    expect(stored.draftPr).toBe(false);
+
+    await workflow.publish(run.runId, { approved: true, actor: 'alice' });
+    expect(api.creates).toHaveLength(1);
+    expect(api.creates[0]!.input.draft).toBe(false);
+  });
+
+  it('opens a GitHub draft PR when draft() is called with draftPr: true', async () => {
+    const { run, api, workflow } = await reviewedRun();
+    const stored = await workflow.draft(run.runId, { draftPr: true });
+    expect(stored.draftPr).toBe(true);
+    expect(workflow.loadDraft(run.runId)?.draftPr).toBe(true);
+    expect(fx.harness.events.list(run.runId, { types: ['pr.approval.requested'] })[0]?.payload).toMatchObject({ draftPr: true });
+
+    const plan = await workflow.plan(run.runId);
+    expect(plan.draftPr).toBe(true);
+    expect(plan.action).toBe(`commit 1 file(s) on ${run.branch}, push to origin (org/repo), open a GitHub draft PR into main`);
+
+    await workflow.publish(run.runId, { approved: true, actor: 'alice' });
+    expect(api.creates).toHaveLength(1);
+    expect(api.creates[0]!.input.draft).toBe(true);
+  });
+
+  it('opens a GitHub draft PR when the config sets pr.draftByDefault: true', async () => {
+    const { run, api, workflow } = await reviewedRun([draftFromEvidence], { config: { pr: { draftByDefault: true } } });
+    expect(fx.harness.config.pr.draftByDefault).toBe(true);
+    const stored = await workflow.draft(run.runId);
+    expect(stored.draftPr).toBe(true);
+    expect((await workflow.plan(run.runId)).action).toContain('open a GitHub draft PR into main');
+
+    await workflow.publish(run.runId, { approved: true, actor: 'alice' });
+    expect(api.creates[0]!.input.draft).toBe(true);
+  });
+
+  it('an explicit draftPr: false overrides pr.draftByDefault: true', async () => {
+    const { run, api, workflow } = await reviewedRun([draftFromEvidence], { config: { pr: { draftByDefault: true } } });
+    const stored = await workflow.draft(run.runId, { draftPr: false });
+    expect(stored.draftPr).toBe(false);
+
+    await workflow.publish(run.runId, { approved: true, actor: 'alice' });
+    expect(api.creates[0]!.input.draft).toBe(false);
   });
 });
 

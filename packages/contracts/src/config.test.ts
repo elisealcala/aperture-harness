@@ -25,7 +25,7 @@ describe('parseUserConfig', () => {
     expect(config.cache).toEqual({ enabled: true, ttl: '5m' });
     expect(config.limits.maxCostPerRunUsd).toBe(0.5);
     expect(config.runtime).toEqual({ isolation: 'required', network: 'allowlist', questionMode: 'interactive', workspace: 'in-place' });
-    expect(config.pr.requireApproval).toBe(true);
+    expect(config.pr).toEqual({ draftByDefault: false, requireApproval: true });
     expect(config.commands).toEqual({});
   });
 
@@ -155,5 +155,15 @@ describe('runtime workspace and network (A1)', () => {
     expect(parsed.runtime).toEqual(parseUserConfig({}).runtime);
     expect(DEFAULT_CONFIG_YAML).toMatch(/workspace: in-place/);
     expect(DEFAULT_CONFIG_YAML).toMatch(/network: allowlist/);
+  });
+
+  it('DEFAULT_CONFIG_YAML opens ready-for-review PRs by default', () => {
+    const parsed = parseUserConfig(parseYaml(DEFAULT_CONFIG_YAML));
+    expect(parsed.pr).toEqual({ draftByDefault: false, requireApproval: true });
+    expect(DEFAULT_CONFIG_YAML).toMatch(/^ {2}draftByDefault: false\b/m);
+  });
+
+  it('honors an explicit pr.draftByDefault: true', () => {
+    expect(parseUserConfig({ pr: { draftByDefault: true } }).pr).toEqual({ draftByDefault: true, requireApproval: true });
   });
 });
