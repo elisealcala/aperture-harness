@@ -84,6 +84,9 @@ export function formatEvent(event: EventEnvelope, options: TextRenderOptions = {
       const line = `${ok ? '[✓]' : '[✗]'} ${str(p.checkId)} ${str(p.status)} (exit ${str(p.exitCode ?? 'none')}, ${num(p.durationMs)}ms)`;
       return paint(c, ok ? 'green' : 'red', options.verbose && !ok ? `${line}\n${str(p.outputTail)}` : line);
     }
+    case 'format.completed':
+      if (p.status === 'SKIPPED') return null;
+      return paint(c, p.status === 'FORMATTED' ? 'green' : 'yellow', `[${p.status === 'FORMATTED' ? '✓' : '!'}] Formatted ${(p.files as string[] | undefined)?.length ?? 0} file(s) with ${str(p.formatterId)}${p.status === 'FAILED' ? ` — exit ${str(p.exitCode)}` : ''}`);
     case 'network.allowed':
       return options.verbose ? paint(c, 'dim', `[·] egress ${str(p.method)} ${str(p.host)}:${num(p.port)} allowed (${str(p.checkId)})`) : null;
     case 'network.denied':

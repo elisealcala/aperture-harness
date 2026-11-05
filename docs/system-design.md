@@ -650,6 +650,10 @@ The gateway rules are unchanged (`.git` is never accessible to tools; deny-wins;
 - Paths mentioned only as reading material ("read …", handoff sections) become readable, not writable.
 - Hosted/deployed verification wording ("deployed", "hosted", "browser", "screenshots") adds a note that the contract needs an egress allowlist and hosted check commands before those requirements can be verified.
 
+### 21.5a Auto-format before verification
+
+Formatting failures reached CI on the first real PRs (#121/#122) because nothing formatted model-written files. Operators can configure trusted **formatters** (`config.formatters`: `exec`, `args`, optional `cwd`, `include` globs). At the start of every verification round the harness runs each formatter in the sandbox on the changed, writable files matching `include` (passed relative to `cwd`), logs `format.completed`, and then verifies as usual — the scope stage still rejects anything a formatter changed outside the writable scope. Formatter failures are reported but do not block; configured format checks do. The model never chooses or runs formatters.
+
 ### 21.5 New acceptance tests
 
 | ID | Scenario | Required behavior |

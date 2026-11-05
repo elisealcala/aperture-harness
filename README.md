@@ -66,6 +66,12 @@ commands:                 # trusted check commands, referenced by contract check
   typecheck: { exec: pnpm, args: [exec, tsc, --noEmit], timeoutSeconds: 300 }
 repositories:             # local clones for GitHub repositories
   org/repo: { path: ~/code/repo, baseBranch: main }
+formatters:               # run on changed files before verification (trusted, never the model)
+  studio-biome:
+    exec: pnpm
+    args: [exec, biome, format, --write, --no-errors-on-unmatched]
+    cwd: studio
+    include: ['studio/**/*.{ts,tsx,js,jsx,json}']
 linear:
   teamRepositories: { ENG: org/repo }
 models:

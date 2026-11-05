@@ -200,6 +200,7 @@ export class Orchestrator {
     const gateway = this.harness.createGateway(run, contract);
     const attempt = this.harness.store.incrementRunCounter(run.runId, 'verification_attempts');
     this.harness.emit(run.runId, 'verification.started', { attempt });
+    await this.autoFormat(run, gateway);
     const report = await verifyRun({
       attempt,
       contract,
@@ -252,6 +253,19 @@ export class Orchestrator {
       }
     }
     return report;
+  }
+
+  /**
+   * Applies the configured formatters to the run's changed files before verification, so
+   * formatting is fixed deterministically instead of failing CI or spending model turns.
+   * The scope stage of verification still checks every resulting change.
+   */
+  protected async autoFormat(run: RunRecord, gateway: ReturnType<Harness['createGateway']>): Promise<void> {
+    const formatters = Object.entries(this.harness.config.formatters);
+    if (formatters.length === 0) return;
+    const changed = (await this.harness.worktrees.nameStatus(run.worktreePath!, run.baselineSha!)).filter((c) => !c.status.startsWith('D')).map((c) => c.path);
+    if (changed.length === 0) return;
+    for (const [id, spec] of formatters) await gateway.runFormatter(id, spec, changed);
   }
 
   latestVerification(runId: string): VerificationReport | undefined {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, isAbsolute, join, relative } from 'node:path';
 import { execFileBounded, type ExecResult } from './exec.ts';
 
 export type IsolationMode = 'macos-seatbelt' | 'linux-bwrap' | 'reduced';
@@ -32,6 +32,8 @@ export interface SandboxCommand {
   env?: Readonly<Record<string, string>>;
   /** Port of the per-check egress proxy on 127.0.0.1; the only network destination allowed. */
   proxyPort?: number;
+  /** Repository-relative subdirectory to run in (validated to stay inside the worktree). */
+  cwd?: string;
 }
 
 export interface SandboxResult extends ExecResult {
@@ -177,7 +179,14 @@ export class SandboxRunner {
       // Clients that honor proxy variables go through the allowlisting proxy; everything else is blocked by the sandbox.
       ...(proxy ? { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, https_proxy: proxy, http_proxy: proxy, NO_PROXY: '', no_proxy: '', NODE_USE_ENV_PROXY: '1' } : {}),
     };
-    const common = { cwd: this.policy.worktreePath, env, timeoutMs: command.timeoutMs, maxOutputBytes: command.maxOutputBytes ?? 512 * 1024 };
+    let cwd = this.policy.worktreePath;
+    if (command.cwd) {
+      const resolved = realpathSync(join(this.policy.worktreePath, command.cwd));
+      const rel = relative(this.policy.worktreePath, resolved);
+      if (rel.startsWith('..') || isAbsolute(rel)) throw new Error(`cwd ${command.cwd} escapes the worktree`);
+      cwd = resolved;
+    }
+    const common = { cwd, env, timeoutMs: command.timeoutMs, maxOutputBytes: command.maxOutputBytes ?? 512 * 1024 };
     let result: ExecResult;
     switch (this.mode) {
       case 'macos-seatbelt': {

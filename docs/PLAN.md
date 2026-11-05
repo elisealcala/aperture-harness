@@ -66,6 +66,8 @@ Design: [`system-design.md` §21](./system-design.md). Decision: in-place (user-
 5. **Compiler adjustments** — expected files (new or existing) writable, read-only mentions readable, hosted-verification note.
 6. **Tests + verification** — AT-17…AT-22.
 
+7. **Auto-format** — trusted `config.formatters` run on changed files before every verification round (§21.5a).
+
 Deferred: dependency provisioning (§21.2) for worktree mode.
 
 ## Definition of done for the MVP

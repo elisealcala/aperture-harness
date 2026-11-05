@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ApprovedContract, CommandSpec } from '@aperture/contracts';
+import { compileGlobs, type ApprovedContract, type CommandSpec, type FormatterSpec } from '@aperture/contracts';
 import { redactString, type EventStore, type ReasonCode } from '@aperture/events';
 import { EgressProxy, git, type SandboxCommand, type SandboxResult } from '@aperture/sandbox';
 import { newId, type ApertureStore } from '@aperture/storage';
@@ -435,6 +435,30 @@ export class ToolGateway {
         this.options.events.append(this.runId, 'tool.approved', { toolCallId: id, name: 'report_blocked' });
         return { kind: 'pause', toolCallId: id, pause: { type: 'blocked', toolCallId: id, reason: request.input.reason, evidence: request.input.evidence ?? [] } };
     }
+  }
+
+  /**
+   * Runs a trusted formatter on the given changed files: only writable paths matching `include`
+   * (and under `cwd`) are passed, relative to `cwd`. Returns the files it was given.
+   */
+  async runFormatter(id: string, spec: FormatterSpec, changedPaths: readonly string[]): Promise<{ id: string; files: string[]; status: 'FORMATTED' | 'SKIPPED' | 'FAILED'; exitCode: number | null; outputTail: string }> {
+    const include = compileGlobs(spec.include);
+    const prefix = spec.cwd ? `${spec.cwd.replace(/\/+$/, '')}/` : '';
+    const files = changedPaths.filter((p) => this.policy.writable(p) && include(p) && p.startsWith(prefix));
+    if (files.length === 0) {
+      return { id, files, status: 'SKIPPED', exitCode: null, outputTail: '' };
+    }
+    const relativeFiles = files.map((p) => p.slice(prefix.length));
+    let result: SandboxResult;
+    try {
+      result = await this.options.runner.run({ exec: spec.exec, args: [...spec.args, ...relativeFiles], timeoutMs: spec.timeoutSeconds * 1000, ...(spec.cwd ? { cwd: spec.cwd } : {}) });
+    } catch (err) {
+      result = { exitCode: 127, signal: null, stdout: '', stderr: `spawn failed: ${(err as Error).message}`, timedOut: false, durationMs: 0, truncated: false, isolation: this.options.runner.mode as SandboxResult['isolation'] };
+    }
+    const output = redactString(`${result.stdout}${result.stderr ? `\n${result.stderr}` : ''}`, { literals: this.options.redactLiterals ?? [] });
+    const status = result.exitCode === 0 && !result.timedOut ? 'FORMATTED' : 'FAILED';
+    this.options.events.append(this.runId, 'format.completed', { formatterId: id, files, status, exitCode: result.exitCode, durationMs: result.durationMs, outputTail: tail(output, 1_500) });
+    return { id, files, status, exitCode: result.exitCode, outputTail: tail(output, 1_500) };
   }
 
   /** Records the final result of a pausing tool once the user/orchestrator has resolved it. */

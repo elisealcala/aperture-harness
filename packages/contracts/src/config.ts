@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { formatZodIssues } from './load.ts';
-import { CacheTtlSchema, CommandSpecSchema } from './schema.ts';
+import { CacheTtlSchema, CommandSpecSchema, RepoGlobSchema, repoPatternProblem } from './schema.ts';
 
 const PricingSchema = z.strictObject({
   inputPerMTok: z.number().nonnegative(),
@@ -22,6 +22,24 @@ const ModelEntrySchema = z.strictObject({
   contextWindow: z.number().int().positive().optional(),
 });
 export type ModelRegistryEntry = z.infer<typeof ModelEntrySchema>;
+
+/**
+ * A trusted formatter the harness runs on the changed files that match `include`, at the start of
+ * every verification round (never by the model). Files are passed as arguments relative to `cwd`.
+ */
+export const FormatterSpecSchema = z.strictObject({
+  exec: z.string().min(1).regex(/^[A-Za-z0-9._/+-]+$/, 'exec must be a bare executable name or path without shell syntax'),
+  args: z.array(z.string().max(4096)).max(64).default([]),
+  /** Repository-relative directory to run in (e.g. `studio`); only files under it are formatted. */
+  cwd: z
+    .string()
+    .max(512)
+    .refine((d) => !repoPatternProblem(d) && !/[*?[{]/.test(d), 'cwd must be a plain repository-relative directory')
+    .optional(),
+  include: z.array(RepoGlobSchema).min(1),
+  timeoutSeconds: z.number().int().positive().max(1800).default(120),
+});
+export type FormatterSpec = z.infer<typeof FormatterSpecSchema>;
 
 const RepoSlug = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
 
@@ -83,6 +101,8 @@ export const UserConfigSchema = z.strictObject({
     .default({ draftByDefault: false, requireApproval: true }),
   /** Trusted command registry used by `run_check` when a contract does not define the command itself. */
   commands: z.record(z.string(), CommandSpecSchema).default({}),
+  /** Deterministic formatters applied to changed files before verification (e.g. biome format --write). */
+  formatters: z.record(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/), FormatterSpecSchema).default({}),
   /** Maps GitHub repositories to local clones, and Linear team keys to GitHub repositories. */
   repositories: z
     .record(RepoSlug, z.strictObject({ path: z.string(), baseBranch: z.string().default('main') }))
@@ -186,6 +206,13 @@ pr:
 #     exec: pnpm
 #     args: [exec, tsc, --noEmit]
 #     timeoutSeconds: 300
+# Formatters run on changed files before verification (paths are passed relative to cwd):
+# formatters:
+#   studio-biome:
+#     exec: pnpm
+#     args: [exec, biome, format, --write, --no-errors-on-unmatched]
+#     cwd: studio
+#     include: ['studio/**/*.{ts,tsx,js,jsx,json}']
 # Local clones for GitHub repositories:
 # repositories:
 #   org/repo:

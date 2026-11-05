@@ -19,6 +19,7 @@ export const EVENT_TYPES = [
   'tool.completed',
   'check.started',
   'check.completed',
+  'format.completed',
   'network.allowed',
   'network.denied',
   'question.asked',
