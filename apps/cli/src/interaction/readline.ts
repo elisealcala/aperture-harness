@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createInterface, type Interface } from 'node:readline/promises';
 import { parseContractText, ContractValidationError } from '@aperture/contracts';
 import { formatContract } from '../render/contract.ts';
-import { createStyle } from '../render/style.ts';
+import { createStyle, shouldColor } from '../render/style.ts';
 import type { ContractProposal, ContractReviewResult, Interaction, QuestionAnswer, QuestionPrompt, ScopeChangePrompt, ScopeDecision } from '@aperture/core';
 
 export function defaultActor(): string {
@@ -41,16 +41,35 @@ export class ReadlineInteraction implements Interaction {
     this.output.write(`${text}\n`);
   }
 
+  /**
+   * Asks one question. If the input ends (Ctrl-D, a closed pipe) the pending question would never
+   * settle on Node 22, so closing the interface resolves it as "" (defer) instead of hanging.
+   */
   private async ask(question: string): Promise<string> {
+    let rl: Interface;
     try {
-      return (await this.prompt.question(question)).trim();
+      rl = this.prompt;
     } catch {
       return '';
     }
+    return new Promise<string>((resolve) => {
+      const onClose = () => resolve('');
+      rl.once('close', onClose);
+      rl.question(question).then(
+        (answer) => {
+          rl.off('close', onClose);
+          resolve(answer.trim());
+        },
+        () => {
+          rl.off('close', onClose);
+          resolve('');
+        },
+      );
+    });
   }
 
   async reviewContract(proposal: ContractProposal): Promise<ContractReviewResult | null> {
-    const style = createStyle(Boolean((this.output as NodeJS.WriteStream).isTTY) && !process.env.NO_COLOR);
+    const style = createStyle(shouldColor(this.output as NodeJS.WriteStream));
     this.write('');
     this.write(
       formatContract(

@@ -10,6 +10,11 @@ export default tseslint.config(
     languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
   },
   {
+    // Tests assert on ANSI escape sequences in rendered terminal output.
+    files: ['**/*.test.ts', '**/*.test.tsx'],
+    rules: { 'no-control-regex': 'off' },
+  },
+  {
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/consistent-type-imports': 'error',

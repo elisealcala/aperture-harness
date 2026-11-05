@@ -25,7 +25,8 @@ export function createStyle(enabled: boolean = shouldColor(), width: number = pr
   return fn;
 }
 
-const ANSI = /\u001b\[[0-9;]*m/g;
+// Built from the ESC code point so the source has no control character in a regex literal.
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 
 export function visibleLength(text: string): number {
   return text.replace(ANSI, '').length;
