@@ -171,9 +171,9 @@ limits:
   maxPatchAttempts: 8
 runtime:
   isolation: required
-  network: allowlist          # contracts may allowlist hosts for check commands; `deny` forbids all egress
+  network: allowlist          # contracts may allowlist hosts for check commands; deny forbids all egress
   questionMode: interactive
-  workspace: in-place        # run on your checked-out branch; or `worktree`
+  workspace: in-place        # run on your checked-out branch; or worktree
 storage:
   directory: ~/.local/share/aperture
 pr:
