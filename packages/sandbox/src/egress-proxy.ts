@@ -1,5 +1,6 @@
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { connect, isIP, type Socket } from 'node:net';
+import { promises as dnsPromises } from 'node:dns';
+import { BlockList, connect, isIP, type Socket } from 'node:net';
 
 export interface EgressDecision {
   host: string;
@@ -37,10 +38,38 @@ export function egressAllowed(rules: readonly string[], host: string, port: numb
   return { allowed: false, reason: 'host is not in the contract allowlist' };
 }
 
+const NON_PUBLIC = new BlockList();
+for (const [net, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4]] as const) {
+  NON_PUBLIC.addSubnet(net, prefix, 'ipv4');
+}
+for (const [net, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8], ['64:ff9b::', 96]] as const) {
+  NON_PUBLIC.addSubnet(net, prefix, 'ipv6');
+}
+
+/** True for loopback, private, link-local, CGNAT, multicast and other non-public addresses. */
+export function isNonPublicAddress(address: string): boolean {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
+  if (mapped) return NON_PUBLIC.check(mapped[1]!, 'ipv4');
+  const family = isIP(address);
+  if (family === 0) return true;
+  return NON_PUBLIC.check(address, family === 4 ? 'ipv4' : 'ipv6');
+}
+
+export interface EgressProxyOptions {
+  /** Resolves a host name to IP addresses (default: the system resolver, all addresses). */
+  resolve?: (host: string) => Promise<string[]>;
+  /** Tests only: allow names that resolve to loopback/private addresses. */
+  allowNonPublicAddresses?: boolean;
+}
+
+const defaultResolve = async (host: string): Promise<string[]> => (await dnsPromises.lookup(host, { all: true, verbatim: true })).map((a) => a.address);
+
 /**
  * Per-check forward proxy (HTTP CONNECT for HTTPS, absolute-form for plain HTTP) bound to
  * 127.0.0.1. The sandbox only lets commands reach this port, so every outbound connection is
- * checked against the approved allowlist and reported; nothing else leaves the machine.
+ * checked against the approved allowlist and reported; nothing else leaves the machine. Allowed names
+ * are resolved by the proxy and refused when any address is non-public (DNS rebinding / SSRF into the
+ * host or LAN); the connection is pinned to the checked address.
  */
 export class EgressProxy {
   private server: Server | undefined;
@@ -49,6 +78,7 @@ export class EgressProxy {
   constructor(
     private readonly rules: readonly string[],
     private readonly onDecision: (decision: EgressDecision) => void = () => undefined,
+    private readonly options: EgressProxyOptions = {},
   ) {}
 
   async start(): Promise<number> {
@@ -75,14 +105,26 @@ export class EgressProxy {
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
-  private decide(host: string, port: number, method: EgressDecision['method']): boolean {
-    const verdict = egressAllowed(this.rules, host, port);
+  /** Returns the address to connect to, or undefined when the request is refused. */
+  private async decide(host: string, port: number, method: EgressDecision['method']): Promise<string | undefined> {
+    let verdict = egressAllowed(this.rules, host, port);
+    let address: string | undefined;
+    if (verdict.allowed) {
+      try {
+        const addresses = await (this.options.resolve ?? defaultResolve)(host);
+        if (addresses.length === 0) verdict = { allowed: false, reason: 'host did not resolve' };
+        else if (!this.options.allowNonPublicAddresses && addresses.some(isNonPublicAddress)) verdict = { allowed: false, reason: 'host resolves to a non-public address' };
+        else address = addresses[0];
+      } catch {
+        verdict = { allowed: false, reason: 'host did not resolve' };
+      }
+    }
     try {
       this.onDecision({ host, port, method, allowed: verdict.allowed, ...(verdict.reason ? { reason: verdict.reason } : {}) });
     } catch {
       // Logging must not affect enforcement.
     }
-    return verdict.allowed;
+    return verdict.allowed ? address : undefined;
   }
 
   private handleConnect(req: IncomingMessage, client: Socket, head: Buffer): void {
@@ -90,11 +132,20 @@ export class EgressProxy {
     client.on('close', () => this.sockets.delete(client));
     client.on('error', () => client.destroy());
     const target = /^\[?([^\]]+?)\]?:(\d{1,5})$/.exec(req.url ?? '');
-    if (!target || !this.decide(target[1]!, Number(target[2]), 'CONNECT')) {
-      client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
-      return;
-    }
-    const upstream = connect(Number(target[2]), target[1]!, () => {
+    client.pause();
+    void (async () => {
+      const address = target ? await this.decide(target[1]!, Number(target[2]), 'CONNECT') : undefined;
+      if (!target || !address) {
+        client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
+        return;
+      }
+      this.tunnel(client, head, address, Number(target[2]));
+    })();
+  }
+
+  private tunnel(client: Socket, head: Buffer, address: string, port: number): void {
+    client.resume();
+    const upstream = connect(port, address, () => {
       client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head.length > 0) upstream.write(head);
       upstream.pipe(client);
@@ -116,14 +167,25 @@ export class EgressProxy {
       return;
     }
     const port = url.port ? Number(url.port) : 80;
-    if (url.protocol !== 'http:' || !this.decide(url.hostname, port, 'HTTP')) {
+    if (url.protocol !== 'http:') {
       res.writeHead(403).end();
       return;
     }
-    const headers = { ...req.headers };
+    req.pause();
+    void this.decide(url.hostname, port, 'HTTP').then((address) => {
+      if (!address) {
+        res.writeHead(403).end();
+        return;
+      }
+      this.forward(req, res, url, address, port);
+    });
+  }
+
+  private forward(req: IncomingMessage, res: ServerResponse, url: URL, address: string, port: number): void {
+    const headers: Record<string, string | string[] | undefined> = { ...req.headers, host: url.host };
     delete headers['proxy-authorization'];
     delete headers['proxy-connection'];
-    const upstream = httpRequest({ host: url.hostname, port, method: req.method, path: `${url.pathname}${url.search}`, headers }, (up) => {
+    const upstream = httpRequest({ host: address, port, method: req.method, path: `${url.pathname}${url.search}`, headers }, (up) => {
       res.writeHead(up.statusCode ?? 502, up.headers);
       up.pipe(res);
     });
@@ -132,5 +194,6 @@ export class EgressProxy {
       res.end();
     });
     req.pipe(upstream);
+    req.resume();
   }
 }

@@ -55,6 +55,7 @@ export interface GatewayOptions {
 }
 
 const MODEL_OUTPUT_LIMIT = 6_000;
+const MIN_SECRET_LENGTH = 8;
 
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
@@ -365,7 +366,10 @@ export class ToolGateway {
       else {
         const value = (this.options.env ?? process.env)[spec.fromEnv];
         if (value === undefined || value === '') missing.push(spec.fromEnv);
-        else {
+        else if (spec.secret && value.length < MIN_SECRET_LENGTH) {
+          // Redaction matches literal values of at least 8 characters; shorter secrets could leak.
+          missing.push(`${spec.fromEnv} (secret shorter than ${MIN_SECRET_LENGTH} characters cannot be redacted safely)`);
+        } else {
           env[name] = value;
           if (spec.secret) secrets.push(value);
         }
@@ -376,7 +380,7 @@ export class ToolGateway {
     let result: SandboxResult;
     let proxy: EgressProxy | undefined;
     try {
-      if (missing.length > 0) throw new Error(`missing environment variable(s) for this check: ${missing.join(', ')}`);
+      if (missing.length > 0) throw new Error(`unusable environment variable(s) for this check: ${missing.join(', ')}`);
       let proxyPort: number | undefined;
       if (egressHosts.length > 0) {
         proxy = new EgressProxy(egressHosts, (d) =>

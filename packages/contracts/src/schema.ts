@@ -56,7 +56,12 @@ export type CommandEnvValue = z.infer<typeof CommandEnvValueSchema>;
 export const EgressHostSchema = z
   .string()
   .max(253)
-  .regex(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(:\d{1,5})?$/i, 'egress hosts must be DNS names (optionally *.domain) with an optional :port; IP literals and bare * are not allowed');
+  .regex(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(:\d{1,5})?$/i, 'egress hosts must be DNS names (optionally *.domain) with an optional :port; IP literals and bare * are not allowed')
+  .refine((h) => !/(^|\.)localhost(:\d+)?$/i.test(h), 'localhost names are not allowed')
+  .refine((h) => {
+    const port = /:(\d+)$/.exec(h)?.[1];
+    return port === undefined || (Number(port) >= 1 && Number(port) <= 65535);
+  }, 'port must be between 1 and 65535');
 
 export const NetworkPermissionSchema = z.union([
   z.literal('deny'),
