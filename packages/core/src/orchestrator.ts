@@ -97,6 +97,7 @@ export class Orchestrator {
       sha256: pending.record.sha256,
       findings: this.harness.analyze(pending.contract),
       notes: (this.harness.events.list(run.runId, { types: ['contract.proposed'] }).at(-1)?.payload.notes as string[] | undefined) ?? [],
+      existingPaths: await this.harness.trackedFiles(run.runId).catch(() => []),
     });
     if (!decision) return false;
     switch (decision.action) {

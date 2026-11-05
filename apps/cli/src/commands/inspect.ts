@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { isTerminal } from '@aperture/core';
 import { openHarness, type GlobalOptions } from '../context.ts';
+import { colorDiff, createStyle } from '../render/style.ts';
 import { formatTimestamped, usd } from '../render/text.ts';
 import { renderOptions } from './run.ts';
 
@@ -88,7 +89,7 @@ export async function diffCommand(runId: string, globals: GlobalOptions): Promis
       return 0;
     }
     const diff = await harness.worktrees.diff(run.worktreePath, run.baselineSha);
-    process.stdout.write(diff.length > 0 ? diff : 'no changes\n');
+    process.stdout.write(diff.length > 0 ? `${colorDiff(createStyle(), diff)}${diff.endsWith('\n') ? '' : '\n'}` : 'no changes\n');
     return 0;
   } finally {
     harness.close();

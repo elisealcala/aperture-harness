@@ -4,6 +4,8 @@ import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { createInterface, type Interface } from 'node:readline/promises';
 import { parseContractText, ContractValidationError } from '@aperture/contracts';
+import { formatContract } from '../render/contract.ts';
+import { createStyle } from '../render/style.ts';
 import type { ContractProposal, ContractReviewResult, Interaction, QuestionAnswer, QuestionPrompt, ScopeChangePrompt, ScopeDecision } from '@aperture/core';
 
 export function defaultActor(): string {
@@ -48,12 +50,20 @@ export class ReadlineInteraction implements Interaction {
   }
 
   async reviewContract(proposal: ContractProposal): Promise<ContractReviewResult | null> {
-    this.write(`\n─── Proposed contract v${proposal.version} (sha256 ${proposal.sha256.slice(0, 16)}) ───`);
-    this.write(proposal.yaml.trimEnd());
-    for (const note of proposal.notes) this.write(`NOTE: ${note}`);
-    for (const f of proposal.findings) this.write(`${f.level.toUpperCase()}: ${f.message}`);
+    const style = createStyle(Boolean((this.output as NodeJS.WriteStream).isTTY) && !process.env.NO_COLOR);
+    this.write('');
+    this.write(
+      formatContract(
+        { contract: proposal.contract, version: proposal.version, sha256: proposal.sha256, findings: proposal.findings, notes: proposal.notes, ...(proposal.existingPaths ? { existingPaths: new Set(proposal.existingPaths) } : {}) },
+        style,
+      ),
+    );
     for (;;) {
-      const answer = (await this.ask('Approve this contract? [a]pprove / [e]dit / [r]eject / [d]efer: ')).toLowerCase();
+      const answer = (await this.ask(`\n${style('bold', 'Approve this contract?')} ${style('green', '[a]pprove')} / ${style('cyan', '[e]dit')} / ${style('gray', '[v]iew YAML')} / ${style('red', '[r]eject')} / [d]efer: `)).toLowerCase();
+      if (answer === 'v' || answer === 'yaml') {
+        this.write(proposal.yaml.trimEnd());
+        continue;
+      }
       if (answer === 'a' || answer === 'approve') {
         if (proposal.findings.some((f) => f.level === 'error')) {
           this.write('The contract has errors and cannot be approved; edit it first.');
@@ -123,6 +133,14 @@ export class ReadlineInteraction implements Interaction {
     if (raw === 'd' || raw === '') return null;
     const rationale = await this.ask('Rationale (recorded): ');
     return { approved: raw === 'y' || raw === 'yes', ...(rationale ? { rationale } : {}) };
+  }
+
+  /** Single-key menu; returns the chosen key, or '' when the user just presses enter. */
+  async choose(message: string, keys: readonly string[]): Promise<string> {
+    for (;;) {
+      const raw = (await this.ask(message)).toLowerCase();
+      if (raw === '' || keys.includes(raw)) return raw;
+    }
   }
 
   async confirm(message: string, details?: string): Promise<boolean> {

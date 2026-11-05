@@ -9,6 +9,8 @@ export interface ContractProposal {
   findings: ContractFinding[];
   /** Why the contract needs review (e.g. vague ticket, amendment). */
   notes: string[];
+  /** Files tracked at the baseline, so reviewers can see which writable paths are new. */
+  existingPaths?: string[];
 }
 
 export type ContractReviewResult = { action: 'approve' } | { action: 'reject'; reason?: string } | { action: 'edit'; contract: ExecutionContract };

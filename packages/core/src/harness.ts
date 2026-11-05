@@ -220,6 +220,13 @@ export class Harness {
     }
   }
 
+  /** Files tracked at the run's baseline candidate (used to mark new files during contract review). */
+  async trackedFiles(runId: string): Promise<string[]> {
+    const run = this.getRun(runId);
+    const task = this.store.getTask(run.taskId)!;
+    return (await this.repoContext(run.repoPath, JSON.parse(task.snapshotJson) as NormalizedTask)).trackedFiles;
+  }
+
   knownCommandIds(): Set<string> {
     return new Set(Object.keys(this.config.commands));
   }

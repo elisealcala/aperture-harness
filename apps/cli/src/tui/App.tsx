@@ -1,5 +1,7 @@
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import { useEffect, useState, type ReactNode } from 'react';
+import { formatContract } from '../render/contract.ts';
+import { createStyle } from '../render/style.ts';
 import { formatEvent, usd } from '../render/text.ts';
 import type { InkInteraction, PendingPrompt } from './interaction.ts';
 import { ACTIVITY_FILTERS, bar, matchesFilter, requirementProgress, type ActivityFilter, type TuiSnapshot } from './model.ts';
@@ -171,17 +173,14 @@ function PromptView({ pending, typing }: { pending: PendingPrompt; typing: strin
     case 'contract':
       return (
         <Box flexDirection="column">
-          <Text bold color="yellow">
-            Contract v{pending.prompt.version} awaiting approval (sha256 {pending.prompt.sha256.slice(0, 16)})
-          </Text>
-          {pending.prompt.yaml.split('\n').slice(0, 30).map((l, i) => (
-            <Text key={i}>{l}</Text>
-          ))}
-          {[...pending.prompt.notes.map((n) => `NOTE: ${n}`), ...pending.prompt.findings.map((f) => `${f.level.toUpperCase()}: ${f.message}`)].map((l, i) => (
-            <Text key={`n${i}`} color="yellow">
-              {l}
-            </Text>
-          ))}
+          {formatContract(
+            { contract: pending.prompt.contract, version: pending.prompt.version, sha256: pending.prompt.sha256, findings: pending.prompt.findings, notes: pending.prompt.notes, ...(pending.prompt.existingPaths ? { existingPaths: new Set(pending.prompt.existingPaths) } : {}) },
+            createStyle(true, (process.stdout.columns ?? 100) - 2),
+          )
+            .split('\n')
+            .map((l, i) => (
+              <Text key={i}>{l}</Text>
+            ))}
           <Text>[a] approve · [r] reject · [d] decide later (edit the contract with the text UI: run without --tui)</Text>
         </Box>
       );

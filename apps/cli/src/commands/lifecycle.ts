@@ -1,4 +1,4 @@
-import { canTransition, loadPreauthorizedAnswers, Orchestrator, PauseService, renderReport, usageTotals } from '@aperture/core';
+import { canTransition, loadPreauthorizedAnswers, Orchestrator, PauseService, usageTotals } from '@aperture/core';
 import { startTui } from '../tui/index.tsx';
 import { driveWithUi } from './drive-ui.ts';
 import type { VerificationReport } from '@aperture/verifier';
@@ -7,7 +7,9 @@ import { join } from 'node:path';
 import { openHarness, type GlobalOptions } from '../context.ts';
 import { createExecutor } from '../executors.ts';
 import { createInteraction } from '../interaction/factory.ts';
-import { defaultActor } from '../interaction/readline.ts';
+import { defaultActor, ReadlineInteraction } from '../interaction/readline.ts';
+import { formatReview } from '../render/review.ts';
+import { colorDiff, createStyle } from '../render/style.ts';
 import { exitCodeFor, printSummary, renderOptions } from './run.ts';
 import { usd } from '../render/text.ts';
 
@@ -169,7 +171,8 @@ export async function reviewCommand(runId: string, opts: ReviewOptions, globals:
     const verificationPath = join(harness.layout.runDir(run.runId), 'verification.json');
     if (!existsSync(verificationPath)) throw new Error('run has not been verified yet');
     const report = JSON.parse(readFileSync(verificationPath, 'utf8')) as VerificationReport;
-    process.stdout.write(renderReport(harness, run.runId, report));
+    const style = createStyle();
+    process.stdout.write(`${formatReview(harness, run.runId, report, style)}\n`);
     if (run.state !== 'READY_FOR_REVIEW') {
       process.stdout.write(`\nrun is ${run.state}; nothing to approve\n`);
       return 0;
@@ -183,10 +186,26 @@ export async function reviewCommand(runId: string, opts: ReviewOptions, globals:
     let acknowledge = Boolean(opts.acknowledgeUnverified);
     let decision: 'local' | 'approve' | undefined = opts.acceptLocal ? 'local' : opts.approve ? 'approve' : undefined;
     if (!decision) {
-      if (!choice.interaction.interactive) throw new Error('pass --accept-local or --approve (and --acknowledge-unverified if needed) when not on a terminal');
-      if (await choice.interaction.confirm('Accept this result locally (COMPLETED_LOCAL)?')) decision = 'local';
-      else if (await choice.interaction.confirm('Approve this diff for a pull request?')) decision = 'approve';
-      else return 0;
+      if (!(choice.interaction instanceof ReadlineInteraction)) throw new Error('pass --accept-local or --approve (and --acknowledge-unverified if needed) when not on a terminal');
+      for (;;) {
+        const key = await choice.interaction.choose(
+          `\n${style('bold', 'Decision:')} ${style('cyan', '[d]iff')} / ${style('green', '[a]ccept locally')} / ${style('green', '[p]R — approve for a pull request')} / ${style('red', '[r]eject')} / [q]uit: `,
+          ['d', 'a', 'p', 'r', 'q'],
+        );
+        if (key === 'd') {
+          process.stdout.write(`${colorDiff(style, await harness.worktrees.diff(run.worktreePath!, run.baselineSha!))}\n`);
+          continue;
+        }
+        if (key === 'r') {
+          harness.transition(run.runId, 'CANCELED', `diff rejected in review by ${defaultActor()}`);
+          process.stdout.write(`${style('red', 'rejected')}: run ${run.runId} canceled\n`);
+          return 2;
+        }
+        if (key === 'a') decision = 'local';
+        else if (key === 'p') decision = 'approve';
+        else return 0;
+        break;
+      }
     }
     if (unverified.length > 0 && !acknowledge) {
       acknowledge = choice.interaction.interactive && (await choice.interaction.confirm(`${unverified.map((r) => r.id).join(', ')} are not verified by checks. Accept them on manual review?`));
