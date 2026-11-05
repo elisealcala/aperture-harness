@@ -6,7 +6,7 @@ import { runRecord, seedRun, taskRecord } from '../../../tests/helpers/records.t
 import { TempDirs } from '../../../tests/helpers/tmp.ts';
 import { SqliteDatabase } from './database.ts';
 import { MIGRATIONS } from './migrations.ts';
-import { ApertureStore, StorageLayout, type ToolOperationRecord } from './store.ts';
+import { ApertureStore, StorageLayout, type ToolOperationRecord, type UsageRecord } from './store.ts';
 
 const EXPECTED_TABLES = [
   'artifacts',
@@ -129,6 +129,65 @@ describe('ApertureStore', () => {
       expect(store.incrementRunCounter('run_1', 'turns')).toBe(1);
       expect(store.incrementRunCounter('run_1', 'verification_attempts')).toBe(1);
       expect(store.getRun('run_1')).toMatchObject({ patchAttempts: 2, turns: 1, verificationAttempts: 1 });
+    });
+
+    describe('runSummaries', () => {
+      function usage(requestId: string, runId: string, costUsd: number, phase: UsageRecord['phase'] = 'implementation'): UsageRecord {
+        return { requestId, runId, phase, modelId: 'claude-sonnet-5-5', input: 10, output: 5, cacheWrite: 0, cacheRead: 0, costUsd, estimatedUsd: null, createdAt: '2026-11-04T20:00:00.000Z' };
+      }
+
+      it('returns an empty list when there are no runs', () => {
+        expect(store.runSummaries()).toEqual([]);
+      });
+
+      it('joins the task title and source and returns the summary fields, newest first', () => {
+        store.insertTask(taskRecord('task_a', { title: 'Fix the login bug', sourceRef: 'github:org/repo#7' }));
+        store.insertTask(taskRecord('task_b', { title: 'Add metrics', sourceRef: 'linear:ENG-12' }));
+        store.insertRun(runRecord('run_old', 'task_a', { startedAt: '2026-11-01T10:00:00.000Z', updatedAt: '2026-11-01T11:00:00.000Z', state: 'BLOCKED', terminalReason: 'STALLED' }));
+        store.insertRun(
+          runRecord('run_new', 'task_b', { startedAt: '2026-11-03T10:00:00.000Z', updatedAt: '2026-11-03T10:05:00.000Z', state: 'EXECUTING', workspace: 'in-place', branch: 'feature/x', repoPath: '/src/clone' }),
+        );
+        store.insertRun(runRecord('run_mid', 'task_a', { startedAt: '2026-11-02T10:00:00.000Z', updatedAt: '2026-11-02T10:00:00.000Z' }));
+
+        const summaries = store.runSummaries();
+        expect(summaries.map((s) => s.runId)).toEqual(['run_new', 'run_mid', 'run_old']);
+        expect(summaries[0]).toEqual({
+          runId: 'run_new',
+          state: 'EXECUTING',
+          modelId: 'claude-sonnet-5-5',
+          repoPath: '/src/clone',
+          workspace: 'in-place',
+          branch: 'feature/x',
+          terminalReason: null,
+          startedAt: '2026-11-03T10:00:00.000Z',
+          updatedAt: '2026-11-03T10:05:00.000Z',
+          title: 'Add metrics',
+          sourceRef: 'linear:ENG-12',
+          costUsd: 0,
+        });
+        expect(summaries[2]).toMatchObject({ runId: 'run_old', title: 'Fix the login bug', sourceRef: 'github:org/repo#7', state: 'BLOCKED', terminalReason: 'STALLED', branch: null, workspace: 'worktree' });
+      });
+
+      it('sums model usage cost per run across phases and reports 0 for runs without usage', () => {
+        seedRun(store, 'run_spent', { startedAt: '2026-11-02T00:00:00.000Z' });
+        seedRun(store, 'run_free', { startedAt: '2026-11-01T00:00:00.000Z' });
+        seedRun(store, 'run_other', { startedAt: '2026-11-03T00:00:00.000Z' });
+        store.insertUsage(usage('req_1', 'run_spent', 0.125));
+        store.insertUsage(usage('req_2', 'run_spent', 0.25, 'pr_draft'));
+        store.insertUsage(usage('req_3', 'run_spent', 0.0625, 'contract_draft'));
+        store.insertUsage(usage('req_4', 'run_other', 1));
+
+        const cost = Object.fromEntries(store.runSummaries().map((s) => [s.runId, s.costUsd]));
+        expect(cost).toEqual({ run_spent: 0.4375, run_free: 0, run_other: 1 });
+        expect(store.runSummaries().map((s) => s.runId)).toEqual(['run_other', 'run_spent', 'run_free']);
+      });
+
+      it('honors the limit, keeping the newest runs', () => {
+        for (let day = 1; day <= 5; day++) seedRun(store, `run_${day}`, { startedAt: `2026-11-0${day}T00:00:00.000Z` });
+        expect(store.runSummaries(2).map((s) => s.runId)).toEqual(['run_5', 'run_4']);
+        expect(store.runSummaries(10)).toHaveLength(5);
+        expect(store.runSummaries()).toHaveLength(5);
+      });
     });
 
     it('findRun resolves exact ids and unique prefixes only', () => {

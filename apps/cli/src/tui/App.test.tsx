@@ -86,4 +86,17 @@ describe('App', () => {
     expect(out).toContain('q interrupt');
     ui.dismiss();
   });
+
+  it('shows "q back to runs" in the footer when opened from the run browser', () => {
+    const out = renderToString(<App load={() => snapshot()} onQuit={() => {}} onBack={() => {}} />, { columns: 200 });
+    expect(out).toContain('q back to runs');
+    expect(out).not.toContain('q detach');
+
+    const ui = new InkInteraction('alice');
+    void ui.confirm('Publish?');
+    const withInteraction = renderToString(<App load={() => snapshot()} onQuit={() => {}} onBack={() => {}} interaction={ui} />, { columns: 200 });
+    expect(withInteraction).toContain('q back to runs');
+    expect(withInteraction).not.toContain('q interrupt');
+    ui.dismiss();
+  });
 });
