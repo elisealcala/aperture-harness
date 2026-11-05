@@ -5,6 +5,7 @@ import { createStyle } from '../render/style.ts';
 import { formatEvent, usd } from '../render/text.ts';
 import type { InkInteraction, PendingPrompt } from './interaction.ts';
 import { ACTIVITY_FILTERS, bar, matchesFilter, requirementProgress, type ActivityFilter, type TuiSnapshot } from './model.ts';
+import { stateColor } from './runs-model.ts';
 
 const TABS = ['Overview', 'Activity', 'Diff', 'Checks', 'Costs', 'Questions'] as const;
 type Tab = (typeof TABS)[number];
@@ -17,13 +18,6 @@ export interface AppProps {
   onQuit: () => void;
   /** When set (run browser), q/Esc return to the run list instead of exiting. */
   onBack?: () => void;
-}
-
-function stateColor(state: string): string {
-  if (state === 'COMPLETED_LOCAL' || state === 'PR_CREATED' || state === 'READY_FOR_REVIEW') return 'green';
-  if (state === 'BLOCKED' || state === 'FAILED' || state === 'CANCELED') return 'red';
-  if (state === 'WAITING_FOR_USER' || state === 'NEEDS_CONTRACT_REVIEW' || state === 'PR_APPROVAL') return 'yellow';
-  return 'cyan';
 }
 
 function eventColor(type: string): string | undefined {

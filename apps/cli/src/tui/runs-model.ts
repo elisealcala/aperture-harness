@@ -2,6 +2,7 @@ import type { RunSummary } from '@aperture/storage';
 
 /** "just now", "5m ago", "3h ago", "2d ago", or the date for older runs. */
 export function relativeTime(iso: string, now: number = Date.now()): string {
+  if (Number.isNaN(Date.parse(iso))) return '-';
   const seconds = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
   if (seconds < 60) return 'just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
@@ -44,6 +45,7 @@ export function visibleWindow(selected: number, length: number, height: number):
 }
 
 export function truncate(text: string, width: number): string {
-  if (width <= 1) return '';
-  return text.length <= width ? text : `${text.slice(0, width - 1)}…`;
+  if (width <= 0) return '';
+  if (text.length <= width) return text;
+  return width === 1 ? '…' : `${text.slice(0, width - 1)}…`;
 }

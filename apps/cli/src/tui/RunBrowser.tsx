@@ -46,6 +46,10 @@ export function RunBrowser({ listRuns, loadRun, pollMs = 1000, initialRunId }: R
   useInput(
     (input, key) => {
       if (editing) {
+        if (key.ctrl && input === 'c') {
+          exit();
+          return;
+        }
         if (key.return || key.escape) setEditing(false);
         if (key.escape) setQuery('');
         else if (key.backspace || key.delete) setQuery(query.slice(0, -1));
@@ -93,7 +97,7 @@ export function RunBrowser({ listRuns, loadRun, pollMs = 1000, initialRunId }: R
   const columns = (stdout as NodeJS.WriteStream).columns ?? 100;
   const height = Math.max(5, ((stdout as NodeJS.WriteStream).rows ?? 30) - 9);
   const { start, end } = visibleWindow(current, visible.length, height);
-  const titleWidth = Math.max(20, columns - 46);
+  const titleWidth = Math.max(20, columns - 47);
   const chosen = visible[current];
 
   return (
@@ -114,7 +118,7 @@ export function RunBrowser({ listRuns, loadRun, pollMs = 1000, initialRunId }: R
           <Text dimColor> </Text>
         )}
       </Text>
-      <Text bold>{`  ${'STATE'.padEnd(22)} ${'COST'.padStart(7)}  ${'WHEN'.padEnd(9)} TITLE`}</Text>
+      <Text bold>{`  ${'STATE'.padEnd(22)} ${'COST'.padStart(8)}  ${'WHEN'.padEnd(9)} TITLE`}</Text>
       {visible.length === 0 ? <Text dimColor>{runs.length === 0 ? '  no runs yet — start one with `aperture run <task>`' : '  no runs match the filter'}</Text> : null}
       {visible.slice(start, end).map((run, i) => {
         const index = start + i;
@@ -122,7 +126,7 @@ export function RunBrowser({ listRuns, loadRun, pollMs = 1000, initialRunId }: R
         return (
           <Text key={run.runId} inverse={isSelected}>
             {isSelected ? '▶ ' : '  '}
-            <Text color={stateColor(run.state)}>{run.state.padEnd(22)}</Text> {`$${run.costUsd.toFixed(3)}`.padStart(7)}  {relativeTime(run.startedAt, now).padEnd(9)} {truncate(run.title, titleWidth)}
+            <Text color={stateColor(run.state)}>{run.state.padEnd(22)}</Text> {`$${run.costUsd.toFixed(3)}`.padStart(8)}  {relativeTime(run.startedAt, now).padEnd(9)} {truncate(run.title, titleWidth)}
           </Text>
         );
       })}
