@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { Command, CommanderError } from 'commander';
 import { envFileCandidates, loadEnvFiles } from './env-file.ts';
+import { commandHelpText, mainHelpText } from './help.ts';
 import type { GlobalOptions } from './context.ts';
 import { initCommand } from './commands/init.ts';
 import { diffCommand, logsCommand, statusCommand, uiCommand } from './commands/inspect.ts';
@@ -20,7 +21,8 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .option('--home <dir>', 'storage directory (default: config storage.directory or $APERTURE_HOME)')
     .option('--env-file <path>', 'load KEY=value secrets from this file (default: <harness>/.env, then ~/.config/aperture/.env)')
     .showHelpAfterError()
-    .exitOverride();
+    .exitOverride()
+    .addHelpText('after', () => mainHelpText());
 
   const globals = (): GlobalOptions => program.opts<GlobalOptions>();
   // Load env files before any command opens the harness, so keys and redaction see them.
@@ -165,6 +167,12 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .argument('<run-id>')
     .option('-y, --yes', 'approve publication without prompting')
     .action(wrap((runId: string, opts: { yes?: boolean }) => prCreateCommand(runId, opts, globals())));
+
+  // Examples under `aperture <command> --help` (including `pr draft` / `pr create`).
+  for (const command of [...program.commands, ...pr.commands]) {
+    const name = command.name();
+    if (commandHelpText(name)) command.addHelpText('after', () => commandHelpText(name));
+  }
 
   return program;
 }
