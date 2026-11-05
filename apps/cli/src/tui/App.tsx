@@ -15,6 +15,8 @@ export interface AppProps {
   pollMs?: number;
   initialShowModelText?: boolean;
   onQuit: () => void;
+  /** When set (run browser), q/Esc return to the run list instead of exiting. */
+  onBack?: () => void;
 }
 
 function stateColor(state: string): string {
@@ -239,7 +241,7 @@ function Questions({ s, pending, typing }: { s: TuiSnapshot; pending: PendingPro
 }
 
 /** Six-panel run view (§10). Renders persisted state only; never shows hidden reasoning. */
-export function App({ load, interaction, pollMs = 400, initialShowModelText = false, onQuit }: AppProps): ReactNode {
+export function App({ load, interaction, pollMs = 400, initialShowModelText = false, onQuit, onBack }: AppProps): ReactNode {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [snapshot, setSnapshot] = useState<TuiSnapshot>(() => load());
@@ -300,6 +302,10 @@ export function App({ load, interaction, pollMs = 400, initialShowModelText = fa
         if (input === 'n') return pending.resolve(false);
       }
     }
+    if (onBack && !pending && (input === 'q' || key.escape)) {
+      onBack();
+      return;
+    }
     if (input === 'q' || (key.ctrl && input === 'c')) {
       interaction?.dismiss();
       onQuit();
@@ -350,7 +356,7 @@ export function App({ load, interaction, pollMs = 400, initialShowModelText = fa
         {tab === 'Questions' ? <Questions s={s} pending={pending} typing={typing} /> : null}
       </Box>
       <Text dimColor>
-        1-6/tab panels · f filter [{filter}] · v verbose [{verbose ? 'on' : 'off'}] · m model text [{showModelText ? 'on' : 'off'}] · ↑↓ scroll · q {interaction ? 'interrupt' : 'detach'}
+        1-6/tab panels · f filter [{filter}] · v verbose [{verbose ? 'on' : 'off'}] · m model text [{showModelText ? 'on' : 'off'}] · ↑↓ scroll · q {onBack ? 'back to runs' : interaction ? 'interrupt' : 'detach'}
       </Text>
     </Box>
   );

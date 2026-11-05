@@ -20,6 +20,7 @@ pnpm aperture run ./tasks/ENG-123.yaml --repo ~/code/app --no-interactive
 pnpm aperture run github:org/repo#142 --budget 0.50 --tui
 pnpm aperture run linear:ENG-123 --cache 5m
 
+pnpm aperture                            # run browser: list of runs → panels (same as `aperture ui`)
 pnpm aperture status <run-id>            # or `status` to list runs
 pnpm aperture attach <run-id>            # live TUI: overview, activity, diff, checks, costs, questions
 pnpm aperture logs <run-id> --format jsonl --follow

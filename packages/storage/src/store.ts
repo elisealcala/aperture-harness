@@ -73,6 +73,21 @@ export interface RunRecord {
   executingMs: number;
 }
 
+export interface RunSummary {
+  runId: string;
+  state: RunState;
+  modelId: string;
+  repoPath: string;
+  workspace: 'in-place' | 'worktree';
+  branch: string | null;
+  terminalReason: string | null;
+  startedAt: string;
+  updatedAt: string;
+  title: string;
+  sourceRef: string;
+  costUsd: number;
+}
+
 export interface QuestionRecord {
   questionId: string;
   runId: string;
@@ -293,6 +308,22 @@ export class ApertureStore {
         { repo: repoPath },
       )
       .map((r) => camelize<RunRecord>(r)!);
+  }
+
+  /** Recent runs with their task title/source and total spend, newest first (run browser). */
+  runSummaries(limit = 200): RunSummary[] {
+    return this.sql
+      .all<Record<string, unknown>>(
+        `SELECT r.run_id, r.state, r.model_id, r.repo_path, r.workspace, r.branch, r.terminal_reason, r.started_at, r.updated_at,
+                t.title, t.source_ref, COALESCE(u.cost, 0) AS cost_usd
+           FROM runs r
+           JOIN tasks t ON t.task_id = r.task_id
+           LEFT JOIN (SELECT run_id, SUM(cost_usd) AS cost FROM model_usage GROUP BY run_id) u ON u.run_id = r.run_id
+          ORDER BY r.started_at DESC
+          LIMIT :limit`,
+        { limit },
+      )
+      .map((r) => camelize<RunSummary>(r)!);
   }
 
   listRuns(limit = 20): RunRecord[] {

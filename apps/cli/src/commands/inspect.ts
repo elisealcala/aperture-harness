@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { isTerminal } from '@aperture/core';
 import { openHarness, type GlobalOptions } from '../context.ts';
+import { startRunBrowser } from '../tui/index.tsx';
 import { colorDiff, createStyle } from '../render/style.ts';
 import { formatTimestamped, usd } from '../render/text.ts';
 import { renderOptions } from './run.ts';
@@ -90,6 +91,20 @@ export async function diffCommand(runId: string, globals: GlobalOptions): Promis
     }
     const diff = await harness.worktrees.diff(run.worktreePath, run.baselineSha);
     process.stdout.write(diff.length > 0 ? `${colorDiff(createStyle(), diff)}${diff.endsWith('\n') ? '' : '\n'}` : 'no changes\n');
+    return 0;
+  } finally {
+    harness.close();
+  }
+}
+
+/** Interactive run browser; falls back to the plain run list when not on a terminal. */
+export async function uiCommand(runId: string | undefined, globals: GlobalOptions): Promise<number> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return statusCommand(runId, globals);
+  const harness = openHarness(globals);
+  try {
+    const initialRunId = runId ? harness.getRun(runId).runId : undefined;
+    const tui = startRunBrowser(harness, initialRunId ? { initialRunId } : {});
+    await tui.waitUntilExit();
     return 0;
   } finally {
     harness.close();

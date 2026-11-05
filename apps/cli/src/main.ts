@@ -3,7 +3,7 @@ import { Command, CommanderError } from 'commander';
 import { envFileCandidates, loadEnvFiles } from './env-file.ts';
 import type { GlobalOptions } from './context.ts';
 import { initCommand } from './commands/init.ts';
-import { diffCommand, logsCommand, statusCommand } from './commands/inspect.ts';
+import { diffCommand, logsCommand, statusCommand, uiCommand } from './commands/inspect.ts';
 import { answerCommand, attachCommand, cancelCommand, resumeCommand, reviewCommand, usageCommand, type AnswerOptions, type ResumeOptions, type ReviewOptions } from './commands/lifecycle.ts';
 import { prCreateCommand, prDraftCommand } from './commands/pr.ts';
 import { runCommand, type RunCommandOptions } from './commands/run.ts';
@@ -38,6 +38,15 @@ export function buildProgram(setExit: (code: number) => void): Command {
     async (...args: A) => {
       setExit(await fn(...args));
     };
+
+  // `aperture` with no command opens the run browser (plain list when not on a terminal).
+  program.action(wrap(() => uiCommand(undefined, globals())));
+
+  program
+    .command('ui')
+    .description('browse runs: list → overview, activity, diff, checks, costs, questions')
+    .argument('[run-id]', 'open this run directly')
+    .action(wrap((runId: string | undefined) => uiCommand(runId, globals())));
 
   program.command('init').description('write a default config and create the storage directory').action(wrap(() => initCommand(globals())));
 
