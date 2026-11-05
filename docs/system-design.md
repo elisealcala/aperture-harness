@@ -586,7 +586,7 @@ The final report must identify run state; requirements matrix; baseline/head SHA
 - **ADR-008:** Prompt caching optimizes API spend but is not task memory; durable state is local.
 - **ADR-009:** Completion is verification/evidence-driven; no autonomous success declaration.
 - **ADR-010 (A1):** Network egress, when granted, is an operator-approved host allowlist for harness-mapped commands only, enforced by a harness proxy; the model never receives network access.
-- **ADR-011 (A1):** Workspaces are per ticket (reused across runs); an in-place branch mode exists only behind clean-tree and locking guards.
+- **ADR-011 (A1):** The default workspace is the user's checked-out branch (clean tree, not the base branch, one active run per clone, `.git` read-only to checks); disposable worktrees are opt-in.
 
 ## 21. Amendment A1 — controlled egress, dependency provisioning, ticket workspaces
 
@@ -622,23 +622,27 @@ spec:
 
 ### 21.2 Dependency provisioning
 
-Workspaces get dependencies before execution, in `PREPARING`, by one of:
+Applies to the opt-in worktree mode (in-place runs use the clone's installed dependencies). Deferred until worktree mode needs it. Workspaces get dependencies before execution, in `PREPARING`, by one of:
 
 - `link` (default when the source clone has them): read-only links of selected directories (e.g. `studio/node_modules`) from the source clone into the workspace. Offline and fast; may be stale relative to the baseline, which verification reports. Writes through these links are already refused by the gateway (symlink rule) and the sandbox (writes outside the workspace).
 - `install`: a declared setup command (e.g. `pnpm install --frozen-lockfile --ignore-scripts`) run in the sandbox with egress limited to package-registry hosts (`phases: [setup]`). Lifecycle scripts stay disabled unless the contract opts in.
 
-### 21.3 Workspaces: per-ticket worktree (recommended) vs in-place branch
+### 21.3 Workspaces: in-place branch (default) vs per-run worktree (opt-in)
 
-| | Per-ticket worktree (**recommended default**) | In-place branch (`workspace: in-place`, opt-in) |
+**Decision (2026-11-04):** the default workspace is the **user's own checkout, on a branch the user created and checked out before running**. The harness never creates, switches or deletes branches in this mode; it records the current branch and `HEAD` as the baseline and works there. A disposable worktree remains available with `--workspace worktree` (or `runtime.workspace: worktree`).
+
+| | In-place (**default**) | Worktree (opt-in) |
 |---|---|---|
-| User checkout | never touched | switched to `aperture/<ticket>`; must be clean |
-| Uncommitted user work | unaffected | run refused (or would be mixed into the diff) |
-| Concurrent tickets / keep coding meanwhile | yes | no (one run per clone; editor/dev server see changes live) |
-| Dependencies | provisioned (§21.2) | already present |
-| Sandbox write root | the worktree | the whole clone (`.git` and other paths still denied) |
-| Disk / clutter | one directory per ticket, removed by `aperture cleanup` | none |
+| Branch | the user's current branch (user-created) | `aperture/<run>` created by the harness |
+| Dependencies | already installed in the clone | provisioned (§21.2) |
+| Uncommitted changes at start | **refused** (they would mix into the diff, verification and PR) | unaffected |
+| Running on the default/base branch or detached `HEAD` | **refused** ("create a branch first") | n/a |
+| Concurrency | one active in-place run per clone (others refused) | many |
+| Sandbox writes | the clone, except `.git/**` (read-only to checks) | the worktree |
+| Resume / PR publish | refused if the checked-out branch changed since the run started | n/a |
+| `cancel --cleanup` | never deletes anything in the clone | removes the worktree and branch |
 
-Changes from the MVP: the workspace and branch are keyed by **ticket** (`aperture/<ticket-key>`, e.g. `aperture/gh-108`), not by run, so retries and new runs of the same ticket reuse them; `aperture cleanup [--merged]` removes worktrees whose runs are terminal or whose branches were merged. In-place mode is offered for users who prefer it, with hard guards: clean working tree required, original branch recorded and restored on finish/cancel, a repository lock preventing a second run, and no automatic stash.
+The gateway rules are unchanged (`.git` is never accessible to tools; deny-wins; no writes through symlinks). Commits for PR publication are made on the user's branch only after PR approval, and that branch is what gets pushed.
 
 ### 21.4 Contract compiler adjustments (from the #108 dry run)
 
@@ -653,9 +657,9 @@ Changes from the MVP: the workspace and branch are keyed by **ticket** (`apertur
 | AT-17 | Check reaches an allowlisted host | Succeeds through the proxy; `network.allowed` logged |
 | AT-18 | Check reaches a non-allowlisted host or direct IP | Fails; `network.denied` logged; no bytes sent |
 | AT-19 | Hosted check secret | Present only in that command's env; redacted from output, events and prompts |
-| AT-20 | Second run of the same ticket | Reuses the ticket workspace and branch; no duplicate worktree |
-| AT-21 | In-place mode with a dirty checkout | Refused before any change; original branch untouched |
-| AT-22 | Workspace dependencies | `link` provides read-only deps; writes through them are rejected |
+| AT-20 | In-place run on a user branch | Works on the current branch; diff, checks and PR use it; `.git` unwritable by checks |
+| AT-21 | In-place with a dirty checkout, on the base branch, detached, or with another active run | Refused before any change |
+| AT-22 | Branch switched mid-run | Resume and PR publish refuse until the run's branch is checked out again |
 
 ## References (verified 2026-11-04)
 
