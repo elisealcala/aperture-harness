@@ -81,7 +81,7 @@ export function gitPusher(env: NodeJS.ProcessEnv, options: { useGhCli: boolean }
 /**
  * The PR workflow (§13): Haiku drafts text from verified evidence; publication happens only after an
  * explicit approval of the exact reviewed diff, is performed by harness code (never by a model
- * tool), creates a draft PR by default, and looks up an existing PR before every create.
+ * tool), opens a ready-for-review PR unless a draft is requested, and looks up an existing PR before every create.
  */
 export class PrWorkflow {
   constructor(private readonly options: PrWorkflowOptions) {}
@@ -196,7 +196,7 @@ export class PrWorkflow {
       body: draft.body,
       draftPr: draft.draftPr,
       changedFiles: changes.map((c) => `${c.status} ${c.path}`),
-      action: `commit ${changes.length} file(s) on ${draft.branch}, push to origin (${draft.repository}), open a ${draft.draftPr ? 'draft ' : ''}PR into ${draft.base}`,
+      action: `commit ${changes.length} file(s) on ${draft.branch}, push to origin (${draft.repository}), open a ${draft.draftPr ? 'GitHub draft ' : 'ready-for-review '}PR into ${draft.base}`,
     };
   }
 

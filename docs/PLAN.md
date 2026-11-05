@@ -17,7 +17,7 @@ Phase 1–4 (§17) onto commits. Phase 5 (evaluation set) is outside the MVP.
 | Prompt caching | explicit `cache_control` breakpoint on the stable system/contract/context prefix + top-level automatic caching for the growing message history; ttl from config (`5m` default) | §8 |
 | Budget | pricing table is config data; ledger charges actual `usage`; preflight estimate = conservative input tokens × input price + `max_tokens` × output price; requests that do not fit the remaining stage budget minus reserve are refused | §8, AT-10 |
 | Contract drafting | deterministic compiler (acceptance-criteria/checkbox extraction, backticked repo paths) → proposed contract → user approval (or `$EDITOR` edit). Vague tickets stay in `NEEDS_CONTRACT_REVIEW` | §6, AT-05 |
-| Commit policy | worktree changes stay uncommitted until PR publish approval; the publisher commits, pushes, and opens a draft PR | §19.7 |
+| Commit policy | worktree changes stay uncommitted until PR publish approval; the publisher commits, pushes, and opens a ready-for-review PR (GitHub draft opt-in) | §19.7 |
 | GitHub / Linear | thin `fetch` clients with injectable transport; GitHub token from `GITHUB_TOKEN` or `gh auth token` (publisher process only); Linear from `LINEAR_API_KEY` | §13, §19 |
 
 ## Stage 1 — Contract and sandbox (first vertical slice)
@@ -52,7 +52,7 @@ Phase 1–4 (§17) onto commits. Phase 5 (evaluation set) is outside the MVP.
 ## Stage 4 — Haiku PR publishing
 
 1. **PR draft** — evidence packet, `claude-haiku-5-5` structured draft, validation/redaction, independent PR budget, deterministic fallback template.
-2. **PR publish** — review-pinned diff hash, explicit approval, commit + push with a publisher-scoped credential helper, existing-PR lookup by head branch before create, draft PR by default, `pr-publication.json`.
+2. **PR publish** — review-pinned diff hash, explicit approval, commit + push with a publisher-scoped credential helper, existing-PR lookup by head branch before create, ready-for-review PR by default (draft via `--draft-pr`), `pr-publication.json`.
 3. **Tests + verification** — AT-12, AT-13, AT-14.
 
 ## Stage 5 — Amendment A1: in-place workspaces and controlled egress

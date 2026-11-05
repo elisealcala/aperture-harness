@@ -418,7 +418,7 @@ PR creation is a **separate, explicit workflow**; Haiku drafts text, but never g
 2. Invoke **`claude-haiku-5-5`**, with caching if worthwhile, to produce structured `{ title, summary, changes, testing, risks, issueReference }` fields. Never invent test results; include only verified evidence.
 3. Validate draft length, required fields, links, and citations to the issue; redact secrets. Render draft in TUI for editing.
 4. Show proposed Git branch, remote, target base, commits, PR title/body, and anticipated GitHub action. Explicitly request **Publish PR** approval.
-5. Harness uses git/GitHub integration with narrow permission to create/push a branch and open a PR. Prefer a **draft PR** by default; no automatic merge.
+5. Harness uses git/GitHub integration with narrow permission to create/push a branch and open a PR. Open a **ready-for-review PR** by default (GitHub draft PRs are opt-in via `pr.draftByDefault` or `--draft-pr`, decision 2026-11-05); no automatic merge.
 6. Persist PR number/URL and publish event. On network retry, first query for existing PR by branch/head to prevent duplicates.
 7. If checks or diff changed after review, invalidate PR approval and require re-review.
 
@@ -483,7 +483,7 @@ runtime:
 storage:
   directory: ~/.local/share/aperture
 pr:
-  draftByDefault: true
+  draftByDefault: false
   requireApproval: true
 ```
 
@@ -534,7 +534,7 @@ The final report must identify run state; requirements matrix; baseline/head SHA
 
 - Haiku 5.5 PR drafting with typed output, validation and isolated budget.
 - Git branch/head validation, review gate, explicit publish confirmation, GitHub PR API.
-- **Exit criterion:** a draft PR is created once from approved work; repeated publish calls do not create duplicates; PR text accurately reflects verified results.
+- **Exit criterion:** a PR is created once from approved work; repeated publish calls do not create duplicates; PR text accurately reflects verified results.
 
 ### Phase 5 — Evaluation and refinement
 

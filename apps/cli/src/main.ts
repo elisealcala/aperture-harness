@@ -158,12 +158,12 @@ export function buildProgram(setExit: (code: number) => void): Command {
 
   const pr = program.command('pr').description('pull request drafting and publication');
   pr.command('draft')
-    .description('draft PR title/body with the PR model from verified evidence')
+    .description('write the PR title/body with the PR model from verified evidence (you approve before publishing)')
     .argument('<run-id>')
     .option('--model <id>', 'PR drafting model (default: contract models.prDraft)')
     .option('--repository <owner/repo>', 'associate a GitHub repository (required for unmapped Linear tasks)')
-    .option('--no-draft-pr', 'open a ready-for-review PR instead of a draft PR')
-    .action(wrap((runId: string, opts: { model?: string; repository?: string; draftPr: boolean }) => prDraftCommand(runId, opts, globals())));
+    .option('--draft-pr', 'open the PR as a GitHub draft (default: ready for review)')
+    .action(wrap((runId: string, opts: { model?: string; repository?: string; draftPr?: boolean }) => prDraftCommand(runId, opts, globals())));
   pr.command('create')
     .description('commit, push and open the PR after explicit approval')
     .argument('<run-id>')

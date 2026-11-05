@@ -97,6 +97,7 @@ export const COMMAND_EXAMPLES: Readonly<Record<string, ReadonlyArray<readonly [s
   draft: [
     ['aperture pr draft <run>', 'Haiku drafts title/body from verified evidence'],
     ['aperture pr draft <run> --repository org/repo', 'associate a repo (e.g. unmapped Linear team)'],
+    ['aperture pr draft <run> --draft-pr', 'publish as a GitHub draft PR instead of ready for review'],
   ],
   create: [
     ['aperture pr create <run>', 'shows branch, base, files, title/body and asks to publish'],

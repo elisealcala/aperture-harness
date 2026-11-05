@@ -75,11 +75,12 @@ export const UserConfigSchema = z.strictObject({
   storage: z.strictObject({ directory: z.string().default('~/.local/share/aperture') }).default({ directory: '~/.local/share/aperture' }),
   pr: z
     .strictObject({
-      draftByDefault: z.boolean().default(true),
+      /** Open GitHub draft PRs instead of ready-for-review PRs (opt in per run with --draft-pr). */
+      draftByDefault: z.boolean().default(false),
       // Approval can never be disabled in the MVP.
       requireApproval: z.literal(true).default(true),
     })
-    .default({ draftByDefault: true, requireApproval: true }),
+    .default({ draftByDefault: false, requireApproval: true }),
   /** Trusted command registry used by `run_check` when a contract does not define the command itself. */
   commands: z.record(z.string(), CommandSpecSchema).default({}),
   /** Maps GitHub repositories to local clones, and Linear team keys to GitHub repositories. */
@@ -177,7 +178,7 @@ runtime:
 storage:
   directory: ~/.local/share/aperture
 pr:
-  draftByDefault: true
+  draftByDefault: false       # true opens GitHub draft PRs; or pass --draft-pr
   requireApproval: true
 # Trusted check commands, referenced by contract checks via commandId:
 # commands:

@@ -20,7 +20,7 @@ function workflow(harness: Harness): PrWorkflow {
   });
 }
 
-export async function prDraftCommand(runId: string, opts: { model?: string; repository?: string; draftPr: boolean }, globals: GlobalOptions): Promise<number> {
+export async function prDraftCommand(runId: string, opts: { model?: string; repository?: string; draftPr?: boolean }, globals: GlobalOptions): Promise<number> {
   const harness = openHarness(globals);
   const detach = attachRenderer(harness, {});
   try {
@@ -28,7 +28,7 @@ export async function prDraftCommand(runId: string, opts: { model?: string; repo
     const draft = await workflow(harness).draft(run.runId, {
       ...(opts.model ? { modelId: opts.model } : {}),
       ...(opts.repository ? { repository: opts.repository } : {}),
-      draftPr: opts.draftPr,
+      ...(opts.draftPr !== undefined ? { draftPr: opts.draftPr } : {}),
     });
     process.stdout.write(`\n${'─'.repeat(60)}\n${draft.title}\n${'─'.repeat(60)}\n${draft.body}\n`);
     if (draft.fallback) process.stdout.write(`note: used the deterministic template (${draft.problems.join('; ')}); edit the text on GitHub if needed\n`);
@@ -52,7 +52,7 @@ export async function prCreateCommand(runId: string, opts: { yes?: boolean }, gl
       const plan = await flow.plan(run.runId);
       const details = [
         `repository: ${plan.repository} (origin ${plan.remoteUrl})`,
-        `branch:     ${plan.branch} → base ${plan.base}${plan.draftPr ? ' (draft PR)' : ''}`,
+        `branch:     ${plan.branch} → base ${plan.base}${plan.draftPr ? ' (GitHub draft PR)' : ' (ready for review)'}`,
         `files:      ${plan.changedFiles.join(', ')}`,
         `action:     ${plan.action}`,
         `title:      ${plan.title}`,

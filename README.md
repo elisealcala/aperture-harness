@@ -52,7 +52,7 @@ Exit codes: `0` ready/completed, `1` error, `2` blocked/failed/canceled, `3` wai
    requirement → evidence matrix. Failures feed back for a bounded number of fix rounds; identical
    failures stop as stalled.
 6. **Review** the exact diff, then optionally **draft** (Haiku, separate budget, validated against the
-   evidence) and **publish** a draft PR after explicit approval.
+   evidence) and **publish** a ready-for-review PR after explicit approval (`--draft-pr` for a GitHub draft).
 
 Everything is persisted in SQLite (state of record) with a JSONL event projection, so a run can be
 interrupted at any point and resumed without replaying a patch, push or PR POST.
