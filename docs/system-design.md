@@ -1,7 +1,7 @@
 # Aperture Harness — System Design Specification
 
 **Status:** Proposed / MVP design  
-**Version:** 0.1  
+**Version:** 0.2 (Amendment A1, §21)  
 **Date:** 2026-11-04  
 **Primary implementation language:** TypeScript (Node.js)  
 **Interface:** Interactive terminal UI and noninteractive CLI  
@@ -565,13 +565,13 @@ The final report must identify run state; requirements matrix; baseline/head SHA
 
 ## 19. Open design decisions
 
-1. **Sandbox provider:** macOS local virtualization/container support vs cross-platform container runtime; required threat model for host filesystem and test execution.
+1. **Sandbox provider:** macOS local virtualization/container support vs cross-platform container runtime; required threat model for host filesystem and test execution. *(Network egress and dependency provisioning: see §21.)*
 2. **GitHub auth:** GitHub App vs user-scoped `gh` auth; choose narrowest viable write path for PR publishing.
 3. **Linear authentication:** personal API key vs OAuth; initial MVP can support a read-only token.
 4. **Source ticket scope:** whether to ingest attachments/linked tickets; default deny large/untrusted attachments.
 5. **Contract authoring:** external Codex plan manually exported as YAML vs built-in Sonnet contract proposal; user approval is required either way.
 6. **Acceptance review:** deterministic only vs optional secondary LLM reviewer; do not confuse an LLM review with verification.
-7. **Branch and commit policy:** whether harness stages a commit on review or leaves changes in worktree until PR approval.
+7. **Branch and commit policy:** whether harness stages a commit on review or leaves changes in worktree until PR approval. *(MVP: changes stay uncommitted until PR approval. Workspace per ticket vs in-place branch: see §21.3.)*
 8. **Cost ceilings:** assign actual default per-run budget after measurements; examples in spec are not expected costs.
 
 ## 20. Key architectural decisions (ADR summary)
@@ -585,6 +585,77 @@ The final report must identify run state; requirements matrix; baseline/head SHA
 - **ADR-007:** PR creation is human approval-gated and performed by harness code, never model tools.
 - **ADR-008:** Prompt caching optimizes API spend but is not task memory; durable state is local.
 - **ADR-009:** Completion is verification/evidence-driven; no autonomous success declaration.
+- **ADR-010 (A1):** Network egress, when granted, is an operator-approved host allowlist for harness-mapped commands only, enforced by a harness proxy; the model never receives network access.
+- **ADR-011 (A1):** Workspaces are per ticket (reused across runs); an in-place branch mode exists only behind clean-tree and locking guards.
+
+## 21. Amendment A1 — controlled egress, dependency provisioning, ticket workspaces
+
+**Status:** Proposed (2026-11-04) · **Motivation:** the first real ticket (`elisealcala/agents#108`, "verify the deployed same-origin private service boundary") could not be executed: its checks must reach a deployed service, the worktree had no installed dependencies, and new files named by the ticket were not writable. ADR-004/005 still hold: the model never gets network or a shell; only harness-mapped commands may get scoped egress.
+
+### 21.1 Controlled network egress for checks
+
+Contracts may grant **allowlisted egress to check and setup commands only**. The model gets no network tool and no web access; nothing it writes can widen the allowlist.
+
+```yaml
+spec:
+  permissions:
+    network:
+      mode: allowlist            # default remains `deny`
+      hosts:                     # exact host[:port]; `*.example.com` allowed, bare `*` rejected
+        - studio.example.workers.dev:443
+      phases: [checks]           # checks | setup
+  commands:
+    boundary-hosted:
+      exec: pnpm
+      args: [--dir, studio, exec, playwright, test, tests/manager/stage-2-boundary.spec.ts]
+      env:                       # names only; values come from the operator's environment
+        STUDIO_BASE_URL: { value: https://studio.example.workers.dev }
+        STUDIO_OWNER_TOKEN: { fromEnv: APERTURE_STUDIO_OWNER_TOKEN, secret: true }
+```
+
+- **Enforcement:** the harness starts a per-run egress proxy on `127.0.0.1:<random>` (HTTP + `CONNECT`) that allows only the contract's hosts and logs every attempt as `network.allowed` / `network.denied` events (host, port, phase — never bodies). The sandbox profile still denies all IP traffic except to that proxy port; commands receive `HTTPS_PROXY`/`HTTP_PROXY`. Tools that ignore proxy settings fail closed.
+- **Linux:** `bwrap --unshare-net` cannot reach a host-side proxy; allowlisted egress on Linux requires a bound Unix socket or `pasta`, otherwise it fails closed. macOS is the first supported platform.
+- **Secrets for hosted checks** are resolved from the operator's environment at execution time, injected only into that command, added to the redaction literals, and never placed in the contract, prompt or events. A contract listing `fromEnv` names is visible at approval.
+- **Approval:** egress hosts and secret env names are part of the approved contract; changing them requires a new contract revision. `request_scope_change` cannot request hosts.
+- **Residual risk:** an allowlisted host is a potential exfiltration channel for repository content reached by a check. Use read-only/test credentials and dedicated test data; outputs are still redacted and bounded.
+- **Cost:** egress itself adds no Anthropic charges (no server-side web tools are used). The indirect cost is check output fed back to the model — at most ~6,000 characters (≈2K tokens) per check result, i.e. ≤ ~$0.004 per check run at Sonnet 5.5 input pricing before caching. Model-side web search/fetch tools remain out of scope; they would add per-use charges and widen the injection surface.
+
+### 21.2 Dependency provisioning
+
+Workspaces get dependencies before execution, in `PREPARING`, by one of:
+
+- `link` (default when the source clone has them): read-only links of selected directories (e.g. `studio/node_modules`) from the source clone into the workspace. Offline and fast; may be stale relative to the baseline, which verification reports. Writes through these links are already refused by the gateway (symlink rule) and the sandbox (writes outside the workspace).
+- `install`: a declared setup command (e.g. `pnpm install --frozen-lockfile --ignore-scripts`) run in the sandbox with egress limited to package-registry hosts (`phases: [setup]`). Lifecycle scripts stay disabled unless the contract opts in.
+
+### 21.3 Workspaces: per-ticket worktree (recommended) vs in-place branch
+
+| | Per-ticket worktree (**recommended default**) | In-place branch (`workspace: in-place`, opt-in) |
+|---|---|---|
+| User checkout | never touched | switched to `aperture/<ticket>`; must be clean |
+| Uncommitted user work | unaffected | run refused (or would be mixed into the diff) |
+| Concurrent tickets / keep coding meanwhile | yes | no (one run per clone; editor/dev server see changes live) |
+| Dependencies | provisioned (§21.2) | already present |
+| Sandbox write root | the worktree | the whole clone (`.git` and other paths still denied) |
+| Disk / clutter | one directory per ticket, removed by `aperture cleanup` | none |
+
+Changes from the MVP: the workspace and branch are keyed by **ticket** (`aperture/<ticket-key>`, e.g. `aperture/gh-108`), not by run, so retries and new runs of the same ticket reuse them; `aperture cleanup [--merged]` removes worktrees whose runs are terminal or whose branches were merged. In-place mode is offered for users who prefer it, with hard guards: clean working tree required, original branch recorded and restored on finish/cancel, a repository lock preventing a second run, and no automatic stash.
+
+### 21.4 Contract compiler adjustments (from the #108 dry run)
+
+- Paths named under "expected files" / "files" sections become writable **even if they do not exist yet** (new files), subject to the deny list.
+- Paths mentioned only as reading material ("read …", handoff sections) become readable, not writable.
+- Hosted/deployed verification wording ("deployed", "hosted", "browser", "screenshots") adds a note that the contract needs an egress allowlist and hosted check commands before those requirements can be verified.
+
+### 21.5 New acceptance tests
+
+| ID | Scenario | Required behavior |
+|---|---|---|
+| AT-17 | Check reaches an allowlisted host | Succeeds through the proxy; `network.allowed` logged |
+| AT-18 | Check reaches a non-allowlisted host or direct IP | Fails; `network.denied` logged; no bytes sent |
+| AT-19 | Hosted check secret | Present only in that command's env; redacted from output, events and prompts |
+| AT-20 | Second run of the same ticket | Reuses the ticket workspace and branch; no duplicate worktree |
+| AT-21 | In-place mode with a dirty checkout | Refused before any change; original branch untouched |
+| AT-22 | Workspace dependencies | `link` provides read-only deps; writes through them are rejected |
 
 ## References (verified 2026-11-04)
 

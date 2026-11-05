@@ -55,6 +55,18 @@ Phase 1–4 (§17) onto commits. Phase 5 (evaluation set) is outside the MVP.
 2. **PR publish** — review-pinned diff hash, explicit approval, commit + push with a publisher-scoped credential helper, existing-PR lookup by head branch before create, draft PR by default, `pr-publication.json`.
 3. **Tests + verification** — AT-12, AT-13, AT-14.
 
+## Stage 5 — Amendment A1: egress, dependencies, workspaces (proposed)
+
+Design: [`system-design.md` §21](./system-design.md). Status: awaiting go-ahead on the workspace default.
+
+1. **Egress policy schema** — `permissions.network: deny | { mode: allowlist, hosts, phases }`, command `env` with `value` / `fromEnv` + `secret`; static analysis rejects bare `*`, IP literals and http-only secrets.
+2. **Egress proxy** — per-run HTTP/CONNECT proxy with host allowlist, `network.allowed|denied` events, seatbelt profile allowing only the proxy port; Linux fails closed unless a supported bridge exists.
+3. **Hosted-check secrets** — resolve `fromEnv` at execution, inject per command, add to redaction literals.
+4. **Dependency provisioning** — `link` (read-only links from the source clone) and `install` (setup command with registry-only egress, scripts off) in PREPARING.
+5. **Ticket workspaces** — workspace + branch keyed by ticket and reused across runs; `aperture cleanup`; optional `workspace: in-place` with clean-tree guard, lock and branch restore.
+6. **Compiler adjustments** — new expected files writable, read-only mentions readable, hosted-verification note.
+7. **Tests + verification** — AT-17…AT-22 and a re-run of the #108 dry run.
+
 ## Definition of done for the MVP
 
 All Stage 1–4 commits land, `pnpm typecheck && pnpm lint && pnpm test` passes, and the §18 acceptance tests
