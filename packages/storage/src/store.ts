@@ -57,6 +57,8 @@ export interface RunRecord {
   baselineRef: string;
   baselineSha: string | null;
   isolation: 'required' | 'reduced';
+  /** `in-place`: the user's checked-out branch in their clone; `worktree`: a disposable harness worktree. */
+  workspace: 'in-place' | 'worktree';
   questionMode: 'interactive' | 'noninteractive';
   turns: number;
   patchAttempts: number;
@@ -200,7 +202,7 @@ function insertSql(table: string, params: SqlParams): string {
 const RUN_COLUMNS = new Set([
   'contract_id', 'state', 'model_id', 'worktree_path', 'branch', 'baseline_sha', 'turns', 'patch_attempts',
   'verification_attempts', 'last_failure_signature', 'review_diff_sha256', 'review_approved_at', 'terminal_reason',
-  'updated_at', 'executing_since', 'executing_ms', 'isolation', 'question_mode',
+  'updated_at', 'executing_since', 'executing_ms', 'isolation', 'question_mode', 'workspace',
 ]);
 
 /** Typed data access for every table. All writes that must be atomic go through `transaction`. */
@@ -281,6 +283,16 @@ export class ApertureStore {
     if (exact) return exact;
     const rows = this.sql.all<Record<string, unknown>>('SELECT * FROM runs WHERE run_id LIKE :p ORDER BY started_at DESC LIMIT 2', { p: `${prefix}%` });
     return rows.length === 1 ? camelize(rows[0]) : undefined;
+  }
+
+  /** Non-terminal in-place runs that already hold a clone (at most one may be active per clone). */
+  activeInPlaceRuns(repoPath: string): RunRecord[] {
+    return this.sql
+      .all<Record<string, unknown>>(
+        "SELECT * FROM runs WHERE repo_path = :repo AND workspace = 'in-place' AND worktree_path IS NOT NULL AND state NOT IN ('COMPLETED_LOCAL', 'PR_CREATED', 'BLOCKED', 'FAILED', 'CANCELED')",
+        { repo: repoPath },
+      )
+      .map((r) => camelize<RunRecord>(r)!);
   }
 
   listRuns(limit = 20): RunRecord[] {

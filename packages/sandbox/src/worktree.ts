@@ -60,6 +60,24 @@ export class WorktreeManager {
     if (branch) await git(repoPath, ['branch', '-D', branch], { allowFailure: true });
   }
 
+  /** Checked-out branch name, or null for a detached HEAD. */
+  async currentBranch(repoPath: string): Promise<string | null> {
+    const result = await git(repoPath, ['symbolic-ref', '--short', '-q', 'HEAD'], { allowFailure: true });
+    return result.exitCode === 0 ? result.stdout.trim() : null;
+  }
+
+  /** Paths with staged, unstaged or untracked (non-ignored) changes. Empty means clean. */
+  async uncommittedPaths(repoPath: string): Promise<string[]> {
+    const out = await gitStdout(repoPath, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
+    return out.split('\0').filter((e) => e.length > 3).map((e) => e.slice(3));
+  }
+
+  /** The remote default branch (origin/HEAD), if known. */
+  async remoteDefaultBranch(repoPath: string): Promise<string | null> {
+    const result = await git(repoPath, ['symbolic-ref', '--short', '-q', 'refs/remotes/origin/HEAD'], { allowFailure: true });
+    return result.exitCode === 0 ? result.stdout.trim().replace(/^origin\//, '') : null;
+  }
+
   async headSha(worktreePath: string): Promise<string> {
     return (await gitStdout(worktreePath, ['rev-parse', 'HEAD'])).trim();
   }

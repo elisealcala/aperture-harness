@@ -46,6 +46,7 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .description('ingest a task (github:owner/repo#N, linear:KEY-N, or contract.yaml) and execute it')
     .argument('<task>', 'task reference')
     .option('--repo <path>', 'local git repository to work in (default: config mapping or cwd)')
+    .option('--workspace <mode>', 'in-place (default: your checked-out branch, which must be clean) or worktree')
     .option('--model <id>', 'implementation model id')
     .option('--budget <usd>', 'implementation budget in USD')
     .option('--cache <ttl>', 'prompt cache TTL: 5m, 1h, or off')

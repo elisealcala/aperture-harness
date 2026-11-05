@@ -29,7 +29,7 @@ export async function statusCommand(runId: string | undefined, globals: GlobalOp
       `MODEL     ${run.modelId}`,
       `CONTRACT  ${contract ? `v${contract.version} sha256:${contract.sha256.slice(0, 16)} approved by ${contract.approvedBy}` : 'not approved'}`,
       `REPO      ${run.repoPath}`,
-      `WORKTREE  ${run.worktreePath ?? '-'} (${run.branch ?? '-'})`,
+      `WORKSPACE ${run.workspace} ${run.worktreePath ?? '-'} (${run.branch ?? '-'})`,
       `BASELINE  ${run.baselineRef} ${run.baselineSha?.slice(0, 12) ?? ''}`,
       `ISOLATION ${run.isolation}    QUESTIONS ${run.questionMode}`,
       `COUNTERS  turns ${run.turns}  patches ${run.patchAttempts}  verifications ${run.verificationAttempts}`,

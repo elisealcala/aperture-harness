@@ -20,6 +20,7 @@ export interface RunCommandOptions {
   filter?: string;
   answers?: string;
   tui?: boolean;
+  workspace?: string;
 }
 
 export const EXIT = { OK: 0, ERROR: 1, NOT_COMPLETED: 2, WAITING: 3 } as const;
@@ -66,11 +67,13 @@ export async function runCommand(reference: string, opts: RunCommandOptions, glo
     if (opts.cache !== undefined && opts.cache !== '5m' && opts.cache !== '1h' && opts.cache !== 'off') throw new Error('--cache must be 5m, 1h or off');
     const executor = createExecutor(harness, { ...(opts.script ? { script: opts.script } : {}) });
     const preauthorized = opts.answers ? loadPreauthorizedAnswers(opts.answers) : undefined;
+    if (opts.workspace !== undefined && opts.workspace !== 'in-place' && opts.workspace !== 'worktree') throw new Error('--workspace must be in-place or worktree');
     const run = await harness.ingest(reference, {
       ...(opts.repo ? { repoPath: opts.repo } : {}),
       cwd: process.cwd(),
       questionMode: opts.interactive ? 'interactive' : 'noninteractive',
       ...(opts.reducedSecurity ? { isolation: 'reduced' as const } : {}),
+      ...(opts.workspace ? { workspace: opts.workspace as 'in-place' | 'worktree' } : {}),
       overrides: {
         ...(opts.model ? { model: opts.model } : {}),
         ...(budgetUsd !== undefined ? { budgetUsd } : {}),

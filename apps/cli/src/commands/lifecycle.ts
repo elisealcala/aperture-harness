@@ -116,8 +116,11 @@ export async function cancelCommand(runId: string, opts: { reason?: string; clea
     if (!canTransition(run.state, 'CANCELED')) throw new Error(`run in state ${run.state} cannot be canceled`);
     for (const q of harness.store.questionsForRun(run.runId, 'open')) harness.store.setQuestionStatus(q.questionId, 'canceled', new Date().toISOString());
     harness.transition(run.runId, 'CANCELED', opts.reason ?? `canceled by ${defaultActor()}`);
-    if (opts.cleanup && run.worktreePath) await harness.worktrees.remove(run.repoPath, run.worktreePath, run.branch ?? undefined);
-    process.stdout.write(`run ${run.runId} canceled${opts.cleanup ? ' and worktree removed' : ''}\n`);
+    // In-place runs live in the user's own clone and branch: never delete anything there.
+    const removable = opts.cleanup && run.workspace === 'worktree' && run.worktreePath;
+    if (removable) await harness.worktrees.remove(run.repoPath, run.worktreePath!, run.branch ?? undefined);
+    const note = opts.cleanup && !removable ? ` (in-place run: your branch ${run.branch ?? ''} and working tree were left as they are)` : removable ? ' and worktree removed' : '';
+    process.stdout.write(`run ${run.runId} canceled${note}\n`);
     return 0;
   } finally {
     harness.close();

@@ -37,6 +37,7 @@ export interface IngestOptions {
   repoPath?: string;
   questionMode?: 'interactive' | 'noninteractive';
   isolation?: 'required' | 'reduced';
+  workspace?: 'in-place' | 'worktree';
   overrides?: {
     model?: string;
     budgetUsd?: number;
@@ -135,6 +136,9 @@ export class Harness {
     const now = new Date().toISOString();
     const snapshot = snapshotTask(task);
     const repoPath = await this.resolveRepoPath(task, options);
+    const workspace = options.workspace ?? this.config.runtime.workspace;
+    // Fail fast, before a run exists, when the user's checkout cannot host an in-place run.
+    if (workspace === 'in-place') await this.assertInPlaceReady(repoPath, task.repository);
 
     this.store.transaction(() => {
       this.store.insertTask({ taskId, sourceType: task.sourceType, sourceRef: task.sourceRef, repository: task.repository, title: task.title, snapshotJson: snapshot.json, snapshotSha256: snapshot.sha256, createdAt: now });
@@ -151,6 +155,7 @@ export class Harness {
         baselineSha: null,
         isolation: options.isolation ?? this.config.runtime.isolation,
         questionMode: options.questionMode ?? this.config.runtime.questionMode,
+        workspace,
         turns: 0,
         patchAttempts: 0,
         verificationAttempts: 0,
@@ -328,7 +333,20 @@ export class Harness {
       this.transition(runId, 'FAILED', (err as Error).message);
       throw err;
     }
-    if (!run.worktreePath) {
+    if (!run.worktreePath && run.workspace === 'in-place') {
+      try {
+        const task = this.store.getTask(run.taskId)!;
+        const branch = await this.assertInPlaceReady(run.repoPath, task.repository, runId);
+        const baselineSha = await this.worktrees.headSha(run.repoPath);
+        const hashes = await this.worktrees.snapshotHashes(run.repoPath, baselineSha);
+        this.store.updateRun(runId, { worktreePath: run.repoPath, branch, baselineSha });
+        this.writeArtifact(runId, 'baseline.json', `${JSON.stringify({ workspace: 'in-place', branch, baselineSha, files: hashes }, null, 2)}\n`, 'baseline');
+        this.emit(runId, 'sandbox.prepared', { workspace: 'in-place', worktreePath: run.repoPath, branch, baselineRef: branch, baselineSha, isolation, trackedFiles: Object.keys(hashes).length });
+      } catch (err) {
+        this.transition(runId, 'FAILED', `in-place workspace refused: ${(err as Error).message}`);
+        throw err;
+      }
+    } else if (!run.worktreePath) {
       const branch = `aperture/${runId.toLowerCase().replace(/_/g, '-')}`;
       try {
         const info = await this.worktrees.create({ repoPath: run.repoPath, baselineRef: contract.contract.metadata.baselineRef, worktreePath: this.layout.worktreeDir(runId), branch });
@@ -346,10 +364,39 @@ export class Harness {
     return run;
   }
 
+  /**
+   * Guards for the default in-place workspace (§21.3): a checked-out branch (not detached, not the
+   * base branch), no uncommitted or untracked changes, and no other active in-place run on the clone.
+   * Returns the branch name.
+   */
+  async assertInPlaceReady(repoPath: string, repository: string | null, runId?: string): Promise<string> {
+    const branch = await this.worktrees.currentBranch(repoPath);
+    if (!branch) throw new HarnessError(`${repoPath} has a detached HEAD; check out the branch for this task first (git switch -c <branch>)`, 'IN_PLACE_DETACHED');
+    const base = (repository ? this.config.repositories[repository]?.baseBranch : undefined) ?? (await this.worktrees.remoteDefaultBranch(repoPath));
+    if (base && branch === base) throw new HarnessError(`${repoPath} is on the base branch ${base}; create and check out a branch for this task first (git switch -c <branch>)`, 'IN_PLACE_BASE_BRANCH');
+    const dirty = await this.worktrees.uncommittedPaths(repoPath);
+    if (dirty.length > 0) {
+      throw new HarnessError(`${repoPath} has uncommitted changes (${dirty.slice(0, 5).join(', ')}${dirty.length > 5 ? ', …' : ''}); commit or stash them so they don't mix into this task's diff`, 'IN_PLACE_DIRTY');
+    }
+    const others = this.store.activeInPlaceRuns(repoPath).filter((r) => r.runId !== runId);
+    if (others.length > 0) throw new HarnessError(`run ${others[0]!.runId} is still active in ${repoPath}; finish or cancel it first`, 'IN_PLACE_BUSY');
+    return branch;
+  }
+
+  /** Refuses to continue an in-place run after the user switched branches (§21.3). */
+  async assertWorkspaceBranch(run: RunRecord): Promise<void> {
+    if (run.workspace !== 'in-place' || !run.branch || !run.worktreePath) return;
+    const current = await this.worktrees.currentBranch(run.worktreePath);
+    if (current !== run.branch) {
+      throw new HarnessError(`run ${run.runId} works on branch ${run.branch}, but ${run.worktreePath} has ${current ?? 'a detached HEAD'} checked out; switch back (git switch ${run.branch}) to continue`, 'IN_PLACE_BRANCH_CHANGED');
+    }
+  }
+
   createRunner(run: RunRecord): SandboxRunner {
     if (!run.worktreePath) throw new HarnessError('run has no worktree', 'NO_WORKTREE');
     return new SandboxRunner(this.isolationMode(run), {
       worktreePath: run.worktreePath,
+      ...(run.workspace === 'in-place' ? { readOnlyPaths: [join(run.worktreePath, '.git')] } : {}),
       tmpDir: this.layout.runTmpDir(run.runId),
       hiddenPaths: [...defaultHiddenPaths(this.env.HOME), this.layout.databasePath, join(this.layout.root, 'runs'), ...(this.options.extraHiddenPaths ?? [])],
     }, this.env);

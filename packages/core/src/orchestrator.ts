@@ -67,6 +67,7 @@ export class Orchestrator {
   async resume(runId: string, options: DriveOptions): Promise<RunRecord> {
     const run = this.harness.getRun(runId);
     if (isTerminal(run.state)) return run;
+    await this.harness.assertWorkspaceBranch(run);
     const { rebuilt } = this.harness.events.syncProjection(run.runId);
     if (run.state === 'EXECUTING' && run.executingSince) {
       // Do not count the time the process was down against the wall-clock limit.

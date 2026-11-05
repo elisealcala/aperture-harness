@@ -67,8 +67,10 @@ export const UserConfigSchema = z.strictObject({
       isolation: z.enum(['required', 'reduced']).default('required'),
       network: z.literal('deny').default('deny'),
       questionMode: z.enum(['interactive', 'noninteractive']).default('interactive'),
+      /** `in-place` (default): work on the user's checked-out branch; `worktree`: disposable worktree per run. */
+      workspace: z.enum(['in-place', 'worktree']).default('in-place'),
     })
-    .default({ isolation: 'required', network: 'deny', questionMode: 'interactive' }),
+    .default({ isolation: 'required', network: 'deny', questionMode: 'interactive', workspace: 'in-place' }),
   storage: z.strictObject({ directory: z.string().default('~/.local/share/aperture') }).default({ directory: '~/.local/share/aperture' }),
   pr: z
     .strictObject({
@@ -170,6 +172,7 @@ runtime:
   isolation: required
   network: deny
   questionMode: interactive
+  workspace: in-place        # run on your checked-out branch; or `worktree`
 storage:
   directory: ~/.local/share/aperture
 pr:

@@ -214,6 +214,7 @@ export class PrWorkflow {
     if (!draft) throw new HarnessError(`no PR draft; run \`aperture pr draft ${runId}\` first`, 'NO_DRAFT');
 
     if (run.state === 'PR_APPROVAL') {
+      await this.harness.assertWorkspaceBranch(run);
       if (!approval.approved) throw new HarnessError('publishing a pull request requires explicit approval; nothing was pushed', 'NOT_APPROVED');
       const diffSha = await this.assertReviewedDiff(run);
       if (diffSha !== draft.diffSha256) throw new HarnessError('the diff changed after the PR draft; re-run `aperture pr draft`', 'DIFF_CHANGED');
@@ -240,6 +241,7 @@ export class PrWorkflow {
       run = this.harness.getRun(runId);
     }
     if (run.state !== 'PR_PUBLISHING') throw new HarnessError(`run is ${run.state}; nothing to publish`, 'NOT_READY');
+    await this.harness.assertWorkspaceBranch(run);
 
     const [owner, repo] = draft.repository.split('/') as [string, string];
     try {

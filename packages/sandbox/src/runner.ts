@@ -19,6 +19,8 @@ export interface SandboxPolicy {
   tmpDir: string;
   /** Directories whose contents must not be readable (aperture storage, credentials). */
   hiddenPaths: readonly string[];
+  /** Paths inside the writable tree that must stay read-only (e.g. the clone's `.git`). */
+  readOnlyPaths?: readonly string[];
 }
 
 export interface SandboxCommand {
@@ -120,6 +122,7 @@ export function seatbeltProfile(policy: SandboxPolicy): string {
     hidden ? `(deny file-read* file-write* ${hidden})` : '',
     // Later rules win: re-allow the worktree and scratch dir even if they sit under a hidden root.
     `(allow file-read* file-write* ${writable})`,
+    ...(policy.readOnlyPaths && policy.readOnlyPaths.length > 0 ? [`(deny file-write* ${policy.readOnlyPaths.map((p) => `(subpath ${sbplString(p)})`).join(' ')})`] : []),
     '',
   ].join('\n');
 }
@@ -130,6 +133,7 @@ export function bwrapArgs(policy: SandboxPolicy, command: SandboxCommand): strin
     if (existsSync(hidden)) args.push('--tmpfs', hidden);
   }
   args.push('--bind', policy.worktreePath, policy.worktreePath, '--bind', policy.tmpDir, policy.tmpDir);
+  for (const ro of policy.readOnlyPaths ?? []) if (existsSync(ro)) args.push('--ro-bind', ro, ro);
   args.push('--unshare-net', '--unshare-pid', '--die-with-parent', '--new-session', '--chdir', policy.worktreePath, '--', command.exec, ...command.args);
   return args;
 }
@@ -145,7 +149,12 @@ export class SandboxRunner {
     private readonly baseEnv: NodeJS.ProcessEnv = process.env,
   ) {
     mkdirSync(policy.tmpDir, { recursive: true, mode: 0o700 });
-    this.policy = { ...policy, worktreePath: realpathSync(policy.worktreePath), tmpDir: realpathSync(policy.tmpDir) };
+    this.policy = {
+      ...policy,
+      worktreePath: realpathSync(policy.worktreePath),
+      tmpDir: realpathSync(policy.tmpDir),
+      ...(policy.readOnlyPaths ? { readOnlyPaths: policy.readOnlyPaths.map((p) => (existsSync(p) ? realpathSync(p) : p)) } : {}),
+    };
   }
 
   get effectivePolicy(): SandboxPolicy {

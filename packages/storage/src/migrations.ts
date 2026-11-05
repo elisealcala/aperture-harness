@@ -167,4 +167,8 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX idx_questions_run ON questions(run_id, status);
   CREATE INDEX idx_toolops_run ON tool_operations(run_id, status);
   `,
+  /* 2 */ `
+  ALTER TABLE runs ADD COLUMN workspace TEXT NOT NULL DEFAULT 'worktree';
+  CREATE INDEX idx_runs_repo ON runs(repo_path, workspace, state);
+  `,
 ];
