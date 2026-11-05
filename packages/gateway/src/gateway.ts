@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { compileGlobs, type ApprovedContract, type CommandSpec, type FormatterSpec } from '@aperture/contracts';
 import { redactString, type EventStore, type ReasonCode } from '@aperture/events';
 import { EgressProxy, git, type SandboxCommand, type SandboxResult } from '@aperture/sandbox';
@@ -443,15 +443,18 @@ export class ToolGateway {
    */
   async runFormatter(id: string, spec: FormatterSpec, changedPaths: readonly string[]): Promise<{ id: string; files: string[]; status: 'FORMATTED' | 'SKIPPED' | 'FAILED'; exitCode: number | null; outputTail: string }> {
     const include = compileGlobs(spec.include);
-    const prefix = spec.cwd ? `${spec.cwd.replace(/\/+$/, '')}/` : '';
-    const files = changedPaths.filter((p) => this.policy.writable(p) && include(p) && p.startsWith(prefix));
+    // Normalize `.`, `./studio`, `studio/` → '' / 'studio'; '' means the repository root.
+    const cwd = spec.cwd ? posix.normalize(spec.cwd).replace(/^(\.\/)+/, '').replace(/\/+$/, '').replace(/^\.$/, '') : '';
+    const prefix = cwd ? `${cwd}/` : '';
+    // Full write check (real regular file, no symlink anywhere on the path), not just the glob.
+    const files = changedPaths.filter((p) => include(p) && p.startsWith(prefix) && this.policy.writable(p) && this.policy.checkWrite(p).allowed);
     if (files.length === 0) {
       return { id, files, status: 'SKIPPED', exitCode: null, outputTail: '' };
     }
     const relativeFiles = files.map((p) => p.slice(prefix.length));
     let result: SandboxResult;
     try {
-      result = await this.options.runner.run({ exec: spec.exec, args: [...spec.args, ...relativeFiles], timeoutMs: spec.timeoutSeconds * 1000, ...(spec.cwd ? { cwd: spec.cwd } : {}) });
+      result = await this.options.runner.run({ exec: spec.exec, args: [...spec.args, ...relativeFiles], timeoutMs: spec.timeoutSeconds * 1000, ...(cwd ? { cwd } : {}) });
     } catch (err) {
       result = { exitCode: 127, signal: null, stdout: '', stderr: `spawn failed: ${(err as Error).message}`, timedOut: false, durationMs: 0, truncated: false, isolation: this.options.runner.mode as SandboxResult['isolation'] };
     }

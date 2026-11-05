@@ -134,14 +134,14 @@ export function seatbeltProfile(policy: SandboxPolicy, options: { proxyPort?: nu
   ].join('\n');
 }
 
-export function bwrapArgs(policy: SandboxPolicy, command: SandboxCommand): string[] {
+export function bwrapArgs(policy: SandboxPolicy, command: SandboxCommand, cwd: string = policy.worktreePath): string[] {
   const args = ['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp'];
   for (const hidden of policy.hiddenPaths) {
     if (existsSync(hidden)) args.push('--tmpfs', hidden);
   }
   args.push('--bind', policy.worktreePath, policy.worktreePath, '--bind', policy.tmpDir, policy.tmpDir);
   for (const ro of policy.readOnlyPaths ?? []) if (existsSync(ro)) args.push('--ro-bind', ro, ro);
-  args.push('--unshare-net', '--unshare-pid', '--die-with-parent', '--new-session', '--chdir', policy.worktreePath, '--', command.exec, ...command.args);
+  args.push('--unshare-net', '--unshare-pid', '--die-with-parent', '--new-session', '--chdir', cwd, '--', command.exec, ...command.args);
   return args;
 }
 
@@ -196,7 +196,7 @@ export class SandboxRunner {
         break;
       }
       case 'linux-bwrap':
-        result = await execFileBounded('bwrap', bwrapArgs(this.policy, command), common);
+        result = await execFileBounded('bwrap', bwrapArgs(this.policy, command, cwd), common);
         break;
       case 'reduced':
         result = await execFileBounded(command.exec, command.args, common);
