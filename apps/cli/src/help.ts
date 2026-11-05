@@ -105,7 +105,7 @@ export const COMMAND_EXAMPLES: Readonly<Record<string, ReadonlyArray<readonly [s
 };
 
 export function commandHelpText(name: string): string {
-  const rows = COMMAND_EXAMPLES[name];
-  if (!rows) return '';
+  if (!Object.hasOwn(COMMAND_EXAMPLES, name)) return '';
+  const rows = COMMAND_EXAMPLES[name]!;
   return `\n${section(style(), 'Examples', rows)}`;
 }

@@ -22,6 +22,8 @@ export function buildProgram(setExit: (code: number) => void): Command {
     .option('--env-file <path>', 'load KEY=value secrets from this file (default: <harness>/.env, then ~/.config/aperture/.env)')
     .showHelpAfterError()
     .exitOverride()
+    // Keep the built-in `help [command]` even though the root program has a default action.
+    .helpCommand(true)
     .addHelpText('after', () => mainHelpText());
 
   const globals = (): GlobalOptions => program.opts<GlobalOptions>();
