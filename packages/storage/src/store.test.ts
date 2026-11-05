@@ -1,5 +1,6 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runRecord, seedRun, taskRecord } from '../../../tests/helpers/records.ts';
 import { TempDirs } from '../../../tests/helpers/tmp.ts';
@@ -225,5 +226,68 @@ describe('StorageLayout', () => {
     expect(layout.runDir('run_1')).toBe('/data/aperture/runs/run_1');
     expect(layout.worktreeDir('run_1')).toBe('/data/aperture/worktrees/run_1');
     expect(layout.runTmpDir('run_1')).toBe('/data/aperture/tmp/run_1');
+  });
+});
+
+describe('runs.workspace (migration 2, A1 in-place workspaces)', () => {
+  const snake = (k: string) => k.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+
+  it('upgrades a version-1 database: existing runs keep the worktree workspace', () => {
+    const path = join(tmp.make('aperture-db-'), 'aperture.db');
+    const v1 = new DatabaseSync(path);
+    v1.exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);');
+    v1.exec(MIGRATIONS[0]!);
+    v1.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)').run('2026-11-01T00:00:00.000Z');
+    const task = taskRecord('task_old');
+    const { workspace: _ignored, ...oldRun } = runRecord('run_old', 'task_old', { state: 'EXECUTING', worktreePath: '/tmp/wt' });
+    for (const [table, row] of [['tasks', task], ['runs', oldRun]] as const) {
+      const keys = Object.keys(row);
+      v1.prepare(`INSERT INTO ${table} (${keys.map(snake).join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...(Object.values(row) as Array<string | number | null>));
+    }
+    v1.close();
+
+    const store = ApertureStore.open(path);
+    try {
+      expect(store.getRun('run_old')).toMatchObject({ runId: 'run_old', workspace: 'worktree' });
+      expect(store.activeInPlaceRuns('/tmp/repo')).toEqual([]);
+    } finally {
+      store.close();
+    }
+    const db = new SqliteDatabase(path);
+    try {
+      expect(db.schemaVersion).toBe(MIGRATIONS.length);
+      expect(db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_runs_repo'")).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  describe('activeInPlaceRuns', () => {
+    let store: ApertureStore;
+    beforeEach(() => {
+      store = ApertureStore.open(join(tmp.make('aperture-store-'), 'aperture.db'));
+    });
+    afterEach(() => store.close());
+
+    const REPO = '/src/clone';
+    const inPlace = { workspace: 'in-place' as const, repoPath: REPO, worktreePath: REPO, branch: 'feature/x' };
+
+    it('round-trips the in-place workspace', () => {
+      seedRun(store, 'run_ip', inPlace);
+      expect(store.getRun('run_ip')).toMatchObject(inPlace);
+    });
+
+    it('returns only non-terminal in-place runs that already hold this clone', () => {
+      for (const state of ['EXECUTING', 'WAITING_FOR_USER', 'VERIFYING', 'READY_FOR_REVIEW', 'PR_APPROVAL', 'PR_PUBLISHING'] as const) seedRun(store, `run_active_${state}`, { ...inPlace, state });
+      for (const state of ['COMPLETED_LOCAL', 'PR_CREATED', 'BLOCKED', 'FAILED', 'CANCELED'] as const) seedRun(store, `run_done_${state}`, { ...inPlace, state });
+      seedRun(store, 'run_not_prepared', { ...inPlace, state: 'NEEDS_CONTRACT_REVIEW', worktreePath: null, branch: null });
+      seedRun(store, 'run_worktree', { workspace: 'worktree', repoPath: REPO, worktreePath: '/data/worktrees/run_worktree', state: 'EXECUTING' });
+      seedRun(store, 'run_other_clone', { ...inPlace, repoPath: '/src/other', worktreePath: '/src/other', state: 'EXECUTING' });
+
+      expect(store.activeInPlaceRuns(REPO).map((r) => r.runId).sort()).toEqual(
+        ['run_active_EXECUTING', 'run_active_PR_APPROVAL', 'run_active_PR_PUBLISHING', 'run_active_READY_FOR_REVIEW', 'run_active_VERIFYING', 'run_active_WAITING_FOR_USER'].sort(),
+      );
+      expect(store.activeInPlaceRuns('/src/nowhere')).toEqual([]);
+    });
   });
 });

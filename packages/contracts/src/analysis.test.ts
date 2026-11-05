@@ -73,3 +73,25 @@ describe('analyzeContract', () => {
     });
   });
 });
+
+describe('analyzeContract A1 egress findings', () => {
+  it('warns EGRESS_GRANTED with the hosts when the contract allowlists egress', () => {
+    const input = contractWith(['spec', 'permissions'], { network: { mode: 'allowlist', hosts: ['studio.example.workers.dev:443', '*.example.com'] } });
+    const findings = analyzeContract(parseContract(input));
+    expect(findings).toEqual([expect.objectContaining({ level: 'warning', code: 'EGRESS_GRANTED', message: expect.stringContaining('studio.example.workers.dev:443, *.example.com') })]);
+  });
+
+  it('warns SECRET_ENV per secret fromEnv variable, naming the variable but never a value', () => {
+    const input = contractWith(['spec', 'commands', 'unit'], {
+      exec: 'node',
+      args: ['--test'],
+      env: { BASE_URL: { value: 'https://studio.example.workers.dev' }, OWNER_TOKEN: { fromEnv: 'APERTURE_OWNER_TOKEN' }, PUBLIC_ID: { fromEnv: 'APERTURE_PUBLIC_ID', secret: false } },
+    });
+    const findings = analyzeContract(parseContract(input));
+    expect(findings).toEqual([expect.objectContaining({ level: 'warning', code: 'SECRET_ENV', message: 'command unit receives secret OWNER_TOKEN from $APERTURE_OWNER_TOKEN at run time' })]);
+  });
+
+  it('adds no egress findings for the default deny', () => {
+    expect(codes(validContractInput())).toEqual([]);
+  });
+});

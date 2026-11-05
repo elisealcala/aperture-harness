@@ -55,6 +55,14 @@ export function sampleIssue(): GitHubIssueJson {
   return JSON.parse(readFileSync(new URL('../../fixtures/sample-issue.json', import.meta.url), 'utf8')) as GitHubIssueJson;
 }
 
+/**
+ * `fixtures/github-issue-108.json`: the real text of elisealcala/agents#108 (the §21 dry run), with
+ * an "Expected files" section naming new files and a handoff that mentions reading material.
+ */
+export function issue108(): GitHubIssueJson {
+  return JSON.parse(readFileSync(new URL('../../fixtures/github-issue-108.json', import.meta.url), 'utf8')) as GitHubIssueJson;
+}
+
 export const SAMPLE_COMMENT = { body: 'Please keep the old response shape.', created_at: '2026-11-04T18:30:00Z', user: { login: 'reviewer', type: 'User' } };
 
 /** Mutable state behind `fakeGitHub`; tests edit it to simulate a ticket changing upstream. */

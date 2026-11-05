@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { contractWith, validContractInput } from '../../../tests/helpers/contracts.ts';
 import { ContractValidationError, loadContractFile, parseContract, parseContractText } from './load.ts';
-import { repoPatternProblem } from './schema.ts';
+import { RESERVED_ENV_NAMES, repoPatternProblem } from './schema.ts';
 
 const SAMPLE_CONTRACT = fileURLToPath(new URL('../../../fixtures/sample-contract.yaml', import.meta.url));
 
@@ -172,5 +172,114 @@ describe('ExecutionContract schema', () => {
       expect(() => parseContract(contractWith(['apiVersion'], 'aperture.dev/v2'))).toThrow(ContractValidationError);
       expect(() => parseContract(contractWith(['kind'], 'Contract'))).toThrow(ContractValidationError);
     });
+  });
+});
+
+// ---- Amendment A1 §21.1: egress allowlist and command env -----------------------------------
+
+describe('permissions.network (A1 egress)', () => {
+  const allowlist = (network: unknown) => parseContract(contractWith(['spec', 'permissions'], { network }));
+
+  it('defaults phases to [checks] for an allowlist', () => {
+    expect(allowlist({ mode: 'allowlist', hosts: ['studio.example.workers.dev:443'] }).spec.permissions.network).toEqual({ mode: 'allowlist', hosts: ['studio.example.workers.dev:443'], phases: ['checks'] });
+  });
+
+  it.each(['studio.example.workers.dev', 'studio.example.workers.dev:8443', '*.example.com', '*.example.com:443', 'API.Example.COM'])('accepts host %j', (host) => {
+    expect(() => allowlist({ mode: 'allowlist', hosts: [host] })).not.toThrow();
+  });
+
+  it.each([
+    ['*', 'bare wildcard'],
+    ['*.com', 'wildcard over a TLD'],
+    ['127.0.0.1', 'IPv4 literal'],
+    ['127.0.0.1:443', 'IPv4 literal with port'],
+    ['[::1]:443', 'IPv6 literal'],
+    ['localhost', 'localhost'],
+    ['localhost:3000', 'localhost with port'],
+    ['https://example.com', 'URL with scheme'],
+    ['example.com/path', 'URL path'],
+    ['example.com:', 'empty port'],
+    ['user@example.com', 'userinfo'],
+    ['exa mple.com', 'whitespace'],
+  ])('rejects host %j (%s)', (host) => {
+    const issues = issuesOf(() => allowlist({ mode: 'allowlist', hosts: [host] }));
+    expect(issues.join('\n')).toMatch(/spec\.permissions\.network/);
+  });
+
+  it.each(['foo.localhost', '*.localhost', 'app.LOCALHOST', 'foo.localhost:8080', '*.dev.localhost:443'])('rejects the localhost name %j with a localhost message', (host) => {
+    const issues = issuesOf(() => allowlist({ mode: 'allowlist', hosts: [host] }));
+    expect(issues.join('\n')).toMatch(/spec\.permissions\.network.*localhost names are not allowed/);
+  });
+
+  it.each(['localhost', 'localhost:8080'])('rejects bare %j', (host) => {
+    expect(() => allowlist({ mode: 'allowlist', hosts: [host] })).toThrow(ContractValidationError);
+  });
+
+  it('accepts names that merely contain "localhost" as a label prefix or inside a label', () => {
+    expect(() => allowlist({ mode: 'allowlist', hosts: ['localhost.example.com', 'mylocalhost.dev', 'notlocalhost.example.com:8080'] })).not.toThrow();
+  });
+
+  it.each(['example.com:0', 'example.com:65536', 'example.com:99999', '*.example.com:00000'])('rejects the out-of-range port in %j', (host) => {
+    const issues = issuesOf(() => allowlist({ mode: 'allowlist', hosts: [host] }));
+    expect(issues.join('\n')).toMatch(/port must be between 1 and 65535/);
+  });
+
+  it.each(['example.com:1', 'example.com:65535', '*.example.com:8080'])('accepts the boundary/in-range port in %j', (host) => {
+    expect(() => allowlist({ mode: 'allowlist', hosts: [host] })).not.toThrow();
+  });
+
+  it('rejects ports with more than five digits by format', () => {
+    expect(() => allowlist({ mode: 'allowlist', hosts: ['example.com:100000'] })).toThrow(ContractValidationError);
+  });
+
+  it.each([
+    [{ mode: 'allowlist', hosts: [] }, 'empty host list'],
+    [{ mode: 'allowlist', hosts: Array.from({ length: 21 }, (_, i) => `h${i}.example.com`) }, 'more than 20 hosts'],
+    [{ mode: 'allowlist', hosts: ['example.com'], phases: ['setup'] }, 'setup phase (deferred)'],
+    [{ mode: 'allowlist', hosts: ['example.com'], phases: [] }, 'no phase'],
+    [{ mode: 'open', hosts: ['example.com'] }, 'unknown mode'],
+    [{ mode: 'allowlist', hosts: ['example.com'], model: true }, 'unknown key'],
+    ['allowlist', 'bare string other than deny'],
+  ])('rejects %j (%s)', (network, _label) => {
+    expect(() => allowlist(network)).toThrow(ContractValidationError);
+  });
+});
+
+describe('command env (A1 hosted-check secrets)', () => {
+  const withEnv = (env: unknown) => parseContract(contractWith(['spec', 'commands', 'unit'], { exec: 'node', args: ['--test'], env }));
+
+  it('accepts plain values and fromEnv references, defaulting secret to true', () => {
+    const contract = withEnv({ STUDIO_BASE_URL: { value: 'https://studio.example.workers.dev' }, STUDIO_OWNER_TOKEN: { fromEnv: 'APERTURE_STUDIO_OWNER_TOKEN' }, PUBLIC_ID: { fromEnv: 'APERTURE_PUBLIC_ID', secret: false } });
+    expect(contract.spec.commands.unit!.env).toEqual({
+      STUDIO_BASE_URL: { value: 'https://studio.example.workers.dev' },
+      STUDIO_OWNER_TOKEN: { fromEnv: 'APERTURE_STUDIO_OWNER_TOKEN', secret: true },
+      PUBLIC_ID: { fromEnv: 'APERTURE_PUBLIC_ID', secret: false },
+    });
+  });
+
+  it('leaves env undefined when omitted', () => {
+    expect(withEnv(undefined).spec.commands.unit!.env).toBeUndefined();
+  });
+
+  it.each([...RESERVED_ENV_NAMES])('rejects the reserved name %s', (name) => {
+    const issues = issuesOf(() => withEnv({ [name]: { value: 'x' } }));
+    expect(issues.join('\n')).toContain(`${name} is reserved`);
+  });
+
+  it('reserves the sandbox and proxy variables', () => {
+    expect([...RESERVED_ENV_NAMES]).toEqual(expect.arrayContaining(['PATH', 'HOME', 'TMPDIR', 'NODE_OPTIONS', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY']));
+  });
+
+  it.each([
+    [{ base_url: { value: 'x' } }, 'lowercase name (would shadow lowercase proxy vars)'],
+    [{ '1ST': { value: 'x' } }, 'name starting with a digit'],
+    [{ TOKEN: { fromEnv: 'lower_case' } }, 'lowercase fromEnv'],
+    [{ TOKEN: { value: 'x', fromEnv: 'APERTURE_TOKEN' } }, 'both value and fromEnv'],
+    [{ TOKEN: { fromEnv: 'APERTURE_TOKEN', secret: 'yes' } }, 'non-boolean secret'],
+    [{ TOKEN: 'literal-secret' }, 'bare string value'],
+    [{ TOKEN: { value: 'x'.repeat(2001) } }, 'value over 2000 chars'],
+    [{ TOKEN: {} }, 'empty spec'],
+  ])('rejects %j (%s)', (env, _label) => {
+    expect(() => withEnv(env)).toThrow(ContractValidationError);
   });
 });

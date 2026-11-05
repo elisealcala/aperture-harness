@@ -158,6 +158,31 @@ export function createFixtureRepo(parent: string, name = 'repo'): FixtureRepo {
   return { path, headSha: gitSync(path, ['rev-parse', 'HEAD']).trim() };
 }
 
+/**
+ * Creates and checks out the user's task branch (in-place runs refuse the base branch). With
+ * `commitFile`, also commits a change so the branch's HEAD differs from `main`.
+ */
+export function switchToUserBranch(path: string, branch = 'feature/session-metadata', commitFile?: { rel: string; content: string }): string {
+  gitSync(path, ['switch', '-q', '-c', branch]);
+  if (commitFile) {
+    const abs = join(path, commitFile.rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, commitFile.content);
+    gitSync(path, ['add', '--', commitFile.rel]);
+    gitSync(path, ['commit', '-q', '-m', `work on ${branch}`]);
+  }
+  return gitSync(path, ['rev-parse', 'HEAD']).trim();
+}
+
+/**
+ * Records `origin/HEAD -> origin/<base>` the way `git clone` does, without contacting any remote,
+ * so the in-place guard knows the default branch.
+ */
+export function setOriginHead(path: string, base = 'main'): void {
+  gitSync(path, ['update-ref', `refs/remotes/origin/${base}`, base]);
+  gitSync(path, ['symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${base}`]);
+}
+
 export interface RepoState {
   head: string;
   branch: string;

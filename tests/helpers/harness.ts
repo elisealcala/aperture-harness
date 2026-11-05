@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseContract, parseUserConfig } from '../../packages/contracts/src/index.ts';
 import { Harness } from '../../packages/core/src/index.ts';
-import type { ContractInput } from '../../packages/contracts/src/index.ts';
+import type { ContractInput, UserConfig } from '../../packages/contracts/src/index.ts';
 import type { ToolGateway } from '../../packages/gateway/src/index.ts';
 import type { RunRecord } from '../../packages/storage/src/index.ts';
 import { createFixtureRepo, type FixtureRepo } from './repo.ts';
@@ -56,23 +56,42 @@ export function fixtureContract(options: FixtureContractOptions = {}): ContractI
   return contract;
 }
 
+/**
+ * User config for fixture harnesses. Runs use a disposable per-run worktree (the pre-A1 default) so
+ * tests keep the user's checkout untouched; in-place tests pass `workspace: 'in-place'` explicitly.
+ */
+export function fixtureConfig(raw: Record<string, unknown> = {}): UserConfig {
+  const runtime = (raw.runtime as Record<string, unknown> | undefined) ?? {};
+  return parseUserConfig({ ...raw, runtime: { workspace: 'worktree', ...runtime } });
+}
+
 export interface HarnessFixture {
   root: string;
   repo: FixtureRepo;
   storageDir: string;
   contractPath: string;
   harness: Harness;
+  /** Options the harness was built with; `reopenHarness` reuses them. */
+  harnessOptions: { config: UserConfig; env?: NodeJS.ProcessEnv };
+}
+
+export interface HarnessFixtureOptions {
+  /** Raw user config merged over `fixtureConfig()` (e.g. `{ runtime: { workspace: 'in-place' } }`). */
+  config?: Record<string, unknown>;
+  /** Harness environment (resolves `fromEnv` command variables); defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Temp dir layout: `<root>/repo` (git), `<root>/contract.yaml`, and a separate storage dir. */
-export function createHarnessFixture(tmp: TempDirs, contract: ContractInput = fixtureContract()): HarnessFixture {
+export function createHarnessFixture(tmp: TempDirs, contract: ContractInput = fixtureContract(), options: HarnessFixtureOptions = {}): HarnessFixture {
   const root = tmp.make('aperture-repo-');
   const storageDir = tmp.make('aperture-storage-');
   const repo = createFixtureRepo(root);
-  const harness = new Harness({ config: parseUserConfig({}), storageDir });
+  const harnessOptions = { config: fixtureConfig(options.config), ...(options.env ? { env: options.env } : {}) };
+  const harness = new Harness({ ...harnessOptions, storageDir });
   const contractPath = join(root, 'contract.yaml');
   writeFileSync(contractPath, harness.contractYaml(parseContract(contract)));
-  return { root, repo, storageDir, contractPath, harness };
+  return { root, repo, storageDir, contractPath, harness, harnessOptions };
 }
 
 export interface PreparedRun {
@@ -85,7 +104,7 @@ export interface PreparedRun {
 /** Ingest -> approve -> prepare (reduced isolation), returning a gateway bound to the EXECUTING run. */
 export async function prepareRun(tmp: TempDirs, contract: ContractInput = fixtureContract()): Promise<PreparedRun> {
   const fx = createHarnessFixture(tmp, contract);
-  const ingested = await fx.harness.ingest(fx.contractPath, { repoPath: fx.repo.path, isolation: 'reduced', questionMode: 'noninteractive' });
+  const ingested = await fx.harness.ingest(fx.contractPath, { repoPath: fx.repo.path, isolation: 'reduced', questionMode: 'noninteractive', workspace: 'worktree' });
   fx.harness.approvePending(ingested.runId, 'test');
   fx.harness.transition(ingested.runId, 'PREPARING', 'contract approved');
   const run = await fx.harness.prepare(ingested.runId);
@@ -95,6 +114,6 @@ export async function prepareRun(tmp: TempDirs, contract: ContractInput = fixtur
 /** Simulates a process restart: closes the fixture's harness and opens a fresh one on the same storage. */
 export function reopenHarness(fx: HarnessFixture): Harness {
   fx.harness.close();
-  fx.harness = new Harness({ config: parseUserConfig({}), storageDir: fx.storageDir });
+  fx.harness = new Harness({ ...fx.harnessOptions, storageDir: fx.storageDir });
   return fx.harness;
 }

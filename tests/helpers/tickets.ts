@@ -14,12 +14,15 @@ export const TICKET_ENV: NodeJS.ProcessEnv = { ...FIXTURE_GIT_ENV, GITHUB_TOKEN:
 
 export const ORIGIN_URL = 'https://github.com/org/repo.git';
 
-/** User config for ticket runs: no `gh` CLI lookups, and a trusted `unit` command for checks. */
+/** User config for ticket runs: no `gh` CLI lookups, a trusted `unit` command for checks, worktree workspaces. */
 export function ticketConfig(raw: Record<string, unknown> = {}): UserConfig {
+  // Ticket runs use a disposable worktree unless a test opts into the in-place default explicitly.
+  const runtime = (raw.runtime as Record<string, unknown> | undefined) ?? {};
   return parseUserConfig({
     providers: { github: { useGhCli: false } },
     commands: { unit: { exec: 'node', args: ['--test', 'test/session.test.mjs'], timeoutSeconds: 60 } },
     ...raw,
+    runtime: { workspace: 'worktree', ...runtime },
   });
 }
 

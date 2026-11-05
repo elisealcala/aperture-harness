@@ -30,6 +30,7 @@ export function runRecord(runId: string, taskId: string, overrides: Partial<RunR
     baselineSha: null,
     isolation: 'reduced',
     questionMode: 'noninteractive',
+    workspace: 'worktree',
     turns: 0,
     patchAttempts: 0,
     verificationAttempts: 0,

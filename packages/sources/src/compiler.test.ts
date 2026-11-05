@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeContract, parseUserConfig, type UserConfig } from '@aperture/contracts';
-import { sampleIssue } from '../../../tests/helpers/fetch.ts';
-import { compileContract, DEFAULT_DENIED, EDIT_ME, extractMentionedPaths, extractRequirements, type RepoContext } from './compiler.ts';
+import { issue108, sampleIssue } from '../../../tests/helpers/fetch.ts';
+import { compileContract, DEFAULT_DENIED, EDIT_ME, extractExpectedFiles, extractMentionedPaths, extractRequirements, sectionItems, type RepoContext } from './compiler.ts';
 import type { NormalizedTask } from './types.ts';
 
 const TRACKED = ['src/api/session.ts', 'src/api/session.test.ts', 'src/util.ts', 'package.json', 'README.md', 'docs/guide.md'];
@@ -204,5 +204,150 @@ describe('compileContract', () => {
     expect(contract.metadata).toMatchObject({ id: 'weird-key-1', title: EDIT_ME, source: { type: 'local' } });
     expect(contract.spec.goal).toBe(EDIT_ME);
     expect(analyzeContract(contract, new Set(['unit'])).find((f) => f.code === 'NEEDS_EDIT')?.message).toContain('goal');
+  });
+});
+
+// ---- Amendment A1 §21.4: expected files, reading material, hosted verification -----------------
+
+const FILES_HEADING_FOR_TEST = /^(?:#{1,6}\s*)?files\b.*$/i;
+
+/** elisealcala/agents#108 as the GitHub adapter would normalize it. */
+function issue108Task(): NormalizedTask {
+  const issue = issue108();
+  return githubTask({ sourceRef: 'github:elisealcala/agents#108', taskKey: 'GH-108', repository: 'elisealcala/agents', title: issue.title, body: issue.body ?? '', url: issue.html_url, revision: issue.updated_at });
+}
+
+const EXPECTED_108 = ['studio/tests/manager/stage-2-boundary.spec.ts', 'project-manager/docs/implementation/evidence/stage-2-boundary.md', 'project-manager/deploy/README.md'];
+const READING_108 = 'project-manager/docs/implementation/02-cloudflare-native.md';
+/** The agents repo at the #108 baseline: the deploy README and the plan doc exist; the spec and evidence file do not. */
+const REPO_108: RepoContext = {
+  trackedFiles: ['project-manager/deploy/README.md', READING_108, 'project-manager/AGENTS.md', 'studio/package.json', 'studio/src/routes/manager.ts', 'studio/src/routes/manager.test.ts'],
+  baselineRef: 'HEAD',
+};
+
+describe('sectionItems', () => {
+  it('collects list items under the first matching heading until the next heading', () => {
+    const body = ['Intro', '## Files', '- `a/one.ts`', 'A paragraph inside the section is skipped.', '* `b/two.ts`', '## Later', '- `c/three.ts`', '## Files again', '- `d/four.ts`'].join('\n');
+    expect(sectionItems(body, FILES_HEADING_FOR_TEST)).toEqual(['`a/one.ts`', '`b/two.ts`']);
+  });
+
+  it('returns nothing when the heading is absent', () => {
+    expect(sectionItems('## Goal\n- `a/one.ts`\n', FILES_HEADING_FOR_TEST)).toEqual([]);
+  });
+
+  it('does not treat a list item that matches the heading pattern as the heading', () => {
+    expect(sectionItems('- files are listed below\n- `a/one.ts`\n', /files\b/i)).toEqual([]);
+  });
+
+  it('ignores items hidden in HTML comments', () => {
+    expect(sectionItems('## Files\n<!--\n- `package.json`\n-->\n- `a/one.ts`\n', FILES_HEADING_FOR_TEST)).toEqual(['`a/one.ts`']);
+  });
+});
+
+describe('extractExpectedFiles', () => {
+  it('reads the three expected files of elisealcala/agents#108 in order', () => {
+    expect(extractExpectedFiles(issue108().body!)).toEqual(EXPECTED_108);
+  });
+
+  it.each([
+    ['## Files to create', 'files to create'],
+    ['### Files to modify', 'files to modify'],
+    ['**Affected files**', 'bold affected files'],
+    ['## Changed files (2)', 'heading with a suffix'],
+  ])('recognizes "%s" (%s)', (heading) => {
+    expect(extractExpectedFiles(`${heading}\n- \`src/new/thing.ts\`\n`)).toEqual(['src/new/thing.ts']);
+  });
+
+  it('keeps only backticked, valid, non-glob paths and normalizes ./ prefixes', () => {
+    const body = [
+      '## Expected files',
+      '- `./docs/guide.md`',
+      '- `src/a.ts` and `src/b.ts` (two in one item)',
+      '- `src/**/*.ts`',
+      '- `../outside.ts`',
+      '- `/etc/passwd`',
+      '- `.git/config`',
+      '- `Makefile`',
+      '- docs/not-backticked.md',
+      '- `CHANGELOG.md`',
+      '- `src/a.ts`',
+    ].join('\n');
+    expect(extractExpectedFiles(body)).toEqual(['docs/guide.md', 'src/a.ts', 'src/b.ts', 'CHANGELOG.md']);
+  });
+
+  it('returns nothing without an expected-files section', () => {
+    expect(extractExpectedFiles(sampleIssue().body!)).toEqual([]);
+  });
+});
+
+describe('compileContract with an expected-files section (elisealcala/agents#108)', () => {
+  const { contract, notes } = compileContract(issue108Task(), config(), REPO_108);
+
+  it('makes exactly the expected files writable, including ones that do not exist yet', () => {
+    expect(contract.spec.scope.writable).toEqual(EXPECTED_108);
+    expect(contract.spec.scope.writable).not.toContain(EDIT_ME);
+  });
+
+  it('makes the handoff reading material readable but not writable', () => {
+    expect(contract.spec.scope.readable).toContain(READING_108);
+    expect(contract.spec.scope.writable).not.toContain(READING_108);
+    // Directories of the expected files are readable for context.
+    expect(contract.spec.scope.readable).toEqual(expect.arrayContaining(['studio/tests/manager/**', 'project-manager/docs/implementation/evidence/**', 'project-manager/deploy/**']));
+  });
+
+  it('notes the new files (only those missing at the baseline) and the hosted-verification gap', () => {
+    const codes = noteCodes(notes);
+    expect(codes).toEqual(expect.arrayContaining(['NEW_FILES', 'HOSTED_VERIFICATION']));
+    expect(codes).not.toContain('NO_FILES_IDENTIFIED');
+    const newFiles = notes.find((n) => n.startsWith('NEW_FILES:'))!;
+    expect(newFiles).toContain('studio/tests/manager/stage-2-boundary.spec.ts');
+    expect(newFiles).toContain('project-manager/docs/implementation/evidence/stage-2-boundary.md');
+    expect(newFiles).not.toContain('project-manager/deploy/README.md');
+    expect(notes.find((n) => n.startsWith('HOSTED_VERIFICATION:'))).toMatch(/permissions\.network/);
+  });
+
+  it('takes the "Done when" checkboxes as requirements and keeps network denied until the approver adds hosts', () => {
+    expect(contract.spec.requirements.map((r) => r.text)).toEqual([
+      expect.stringMatching(/^Unsigned\/wrong-actor\/direct private endpoint attempts/),
+      expect.stringMatching(/^Same-origin owner requests reach the intended binding/),
+      expect.stringMatching(/^Protected responses are private\/no-store/),
+    ]);
+    expect(contract.spec.permissions.network).toBe('deny');
+    expect(analyzeContract(contract, new Set(['unit'])).filter((f) => f.level === 'error')).toEqual([]);
+  });
+});
+
+describe('compileContract expected-files edge cases', () => {
+  it('does not make an expected file on the deny list writable, and reports it', () => {
+    const body = '## Acceptance criteria\n- works\n\n## Expected files\n- `src/api/session.ts`\n- `.env.local`\n- `studio/package.json`\n';
+    const { contract, notes } = compileContract(githubTask({ body }), config(), REPO);
+    expect(contract.spec.scope.writable).toEqual(['src/api/session.ts']);
+    expect(notes.find((n) => n.startsWith('FILTERED_DENIED_PATHS:'))).toMatch(/\.env\.local.*studio\/package\.json/);
+    expect(noteCodes(notes)).not.toContain('NEW_FILES');
+  });
+
+  it('treats other tracked mentions as readable only and adds no sibling tests when files are listed', () => {
+    const body = '## Acceptance criteria\n- works\n\n## Expected files\n- `src/util.ts`\n\nSee `docs/guide.md` and src/api/session.ts for background.\n';
+    const { contract } = compileContract(githubTask({ body }), config(), REPO);
+    expect(contract.spec.scope.writable).toEqual(['src/util.ts']);
+    expect(contract.spec.scope.readable).toEqual(expect.arrayContaining(['src/**', 'docs/guide.md', 'src/api/session.ts']));
+    expect(contract.spec.scope.writable).not.toContain('src/api/session.test.ts');
+  });
+
+  it('falls back to a placeholder when every expected file is denied', () => {
+    const body = '## Acceptance criteria\n- works\n\n## Expected files\n- `package.json`\n';
+    const { contract, notes } = compileContract(githubTask({ body }), config(), REPO);
+    expect(contract.spec.scope.writable).toEqual([EDIT_ME]);
+    expect(noteCodes(notes)).toEqual(expect.arrayContaining(['FILTERED_DENIED_PATHS', 'NO_FILES_IDENTIFIED']));
+  });
+
+  it.each(['deployed', 'hosted', 'production', 'staging', 'browser', 'screenshots', 'live site'])('adds HOSTED_VERIFICATION for "%s" wording', (word) => {
+    const { notes } = compileContract(githubTask({ body: `## Acceptance criteria\n- the ${word} flow works in src/api/session.ts\n` }), config(), REPO);
+    expect(noteCodes(notes)).toContain('HOSTED_VERIFICATION');
+  });
+
+  it('does not add HOSTED_VERIFICATION for local-only wording', () => {
+    const { notes } = compileContract(githubTask({ title: 'Add metadata', body: '## Acceptance criteria\n- unit tests cover src/api/session.ts\n' }), config(), REPO);
+    expect(noteCodes(notes)).not.toContain('HOSTED_VERIFICATION');
   });
 });

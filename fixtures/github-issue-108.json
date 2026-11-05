@@ -1,0 +1,13 @@
+{
+  "number": 108,
+  "title": "[PM-202a] Verify the deployed same-origin private service boundary",
+  "body": "Parent stage: #22 · Plan slice: PM-202\n\n## Existing foundation\nStage 2 already has local owner/auth/proxy guards, durable manager/evidence storage, paired import and scheduled backup/download primitives. Reuse the published foundation; source completion is not hosted acceptance.\n\n## Goal\nExercise the real deployed Studio route → private Durable Object boundary. Existing synthetic route/binding tests passed; they are not hosted proof.\n\n## Expected files (3–4 implementation/test/evidence files)\n- `studio/tests/manager/stage-2-boundary.spec.ts`\n- `project-manager/docs/implementation/evidence/stage-2-boundary.md`\n- `project-manager/deploy/README.md`\n\nReuse existing paths; new paths are proposed. Infrastructure/acceptance sessions may change only evidence/configuration. Required owning-component progress/active-context notes are additional. Never commit credentials, user backups or generated runtime artifacts.\n\n## Done when\n- [ ] Unsigned/wrong-actor/direct private endpoint attempts cannot read or mutate state.\n- [ ] Same-origin owner requests reach the intended binding; forged identity/target headers and cross-origin mutations fail.\n- [ ] Protected responses are private/no-store; bundles/network/screenshots expose no credentials, private artifacts, raw exceptions or localhost targets.\n\n## Dependencies\nStage 1 (#21) is complete.\n#107 (PM-205a)\n\n## Verify and stop\nScoped deployed boundary/browser checks with controlled data; record release version and exact outcomes.\n\nStop before: Rewriting the proxy, importing real data or testing every user journey. If the work grows beyond one small session, open a focused follow-up instead of expanding scope.\n\n## Fresh-session handoff\nRead the owning component AGENTS.md and four required bank files, this issue, and only the relevant section of project-manager/docs/implementation/02-cloudflare-native.md and project-manager/deploy/README.md. Preserve ongoing edits. Record exact check results, hosted versus synthetic limits, and the next prerequisite. One session completes this child, not all of #22. Stage 3 and external delivery automation remain gated.\n",
+  "state": "open",
+  "labels": [],
+  "html_url": "https://github.com/elisealcala/agents/issues/108",
+  "updated_at": "2026-11-03T02:17:06Z",
+  "user": {
+    "login": "elisealcala"
+  },
+  "comments": 0
+}

@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ConfigError, expandHome, loadUserConfig, parseUserConfig, resolveStorageDirectory } from './config.ts';
+import { parse as parseYaml } from 'yaml';
+import { ConfigError, DEFAULT_CONFIG_YAML, expandHome, loadUserConfig, parseUserConfig, resolveStorageDirectory } from './config.ts';
 
 function configError(raw: unknown): ConfigError {
   try {
@@ -23,7 +24,7 @@ describe('parseUserConfig', () => {
     expect(config.models.prDraft).toBe('claude-haiku-5-5');
     expect(config.cache).toEqual({ enabled: true, ttl: '5m' });
     expect(config.limits.maxCostPerRunUsd).toBe(0.5);
-    expect(config.runtime).toEqual({ isolation: 'required', network: 'deny', questionMode: 'interactive' });
+    expect(config.runtime).toEqual({ isolation: 'required', network: 'allowlist', questionMode: 'interactive', workspace: 'in-place' });
     expect(config.pr.requireApproval).toBe(true);
     expect(config.commands).toEqual({});
   });
@@ -109,7 +110,7 @@ describe('loadUserConfig', () => {
 
   it('parses a YAML file', () => {
     const config = loadUserConfig(tmpFile('runtime:\n  isolation: reduced\n  questionMode: noninteractive\n'));
-    expect(config.runtime).toEqual({ isolation: 'reduced', network: 'deny', questionMode: 'noninteractive' });
+    expect(config.runtime).toEqual({ isolation: 'reduced', network: 'allowlist', questionMode: 'noninteractive', workspace: 'in-place' });
   });
 
   it('rejects invalid YAML with a ConfigError', () => {
@@ -132,5 +133,27 @@ describe('path helpers', () => {
     const config = parseUserConfig({ storage: { directory: '/var/lib/aperture' } });
     expect(resolveStorageDirectory(config, { APERTURE_HOME: '/tmp/ah' })).toBe(resolve('/tmp/ah'));
     expect(resolveStorageDirectory(config, {})).toBe('/var/lib/aperture');
+  });
+});
+
+describe('runtime workspace and network (A1)', () => {
+  it('accepts runtime.workspace worktree and runtime.network deny', () => {
+    expect(parseUserConfig({ runtime: { workspace: 'worktree', network: 'deny' } }).runtime).toEqual({ isolation: 'required', network: 'deny', questionMode: 'interactive', workspace: 'worktree' });
+  });
+
+  it.each([
+    [{ workspace: 'clone' }, 'workspace'],
+    [{ workspace: 'inplace' }, 'workspace'],
+    [{ network: 'open' }, 'network'],
+    [{ network: true }, 'network'],
+  ])('rejects runtime %j', (runtime, key) => {
+    expect(configError({ runtime }).issues.join('\n')).toMatch(new RegExp(`runtime\\.${key}`));
+  });
+
+  it('DEFAULT_CONFIG_YAML documents the in-place and allowlist defaults and parses to the defaults', () => {
+    const parsed = parseUserConfig(parseYaml(DEFAULT_CONFIG_YAML));
+    expect(parsed.runtime).toEqual(parseUserConfig({}).runtime);
+    expect(DEFAULT_CONFIG_YAML).toMatch(/workspace: in-place/);
+    expect(DEFAULT_CONFIG_YAML).toMatch(/network: allowlist/);
   });
 });
