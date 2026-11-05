@@ -384,7 +384,9 @@ export class Harness {
   async assertInPlaceReady(repoPath: string, repository: string | null, runId?: string): Promise<string> {
     const branch = await this.worktrees.currentBranch(repoPath);
     if (!branch) throw new HarnessError(`${repoPath} has a detached HEAD; check out the branch for this task first (git switch -c <branch>)`, 'IN_PLACE_DETACHED');
-    const base = (repository ? this.config.repositories[repository]?.baseBranch : undefined) ?? (await this.worktrees.remoteDefaultBranch(repoPath));
+    const configured = repository ? this.config.repositories[repository]?.baseBranch : undefined;
+    // Without a configured base or origin/HEAD, still refuse the conventional default branches.
+    const base = configured ?? (await this.worktrees.remoteDefaultBranch(repoPath)) ?? (branch === 'main' || branch === 'master' ? branch : null);
     if (base && branch === base) throw new HarnessError(`${repoPath} is on the base branch ${base}; create and check out a branch for this task first (git switch -c <branch>)`, 'IN_PLACE_BASE_BRANCH');
     const dirty = await this.worktrees.uncommittedPaths(repoPath);
     if (dirty.length > 0) {

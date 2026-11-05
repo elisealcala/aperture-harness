@@ -69,7 +69,19 @@ export class WorktreeManager {
   /** Paths with staged, unstaged or untracked (non-ignored) changes. Empty means clean. */
   async uncommittedPaths(repoPath: string): Promise<string[]> {
     const out = await gitStdout(repoPath, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
-    return out.split('\0').filter((e) => e.length > 3).map((e) => e.slice(3));
+    const entries = out.split('\0');
+    const paths: string[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]!;
+      if (entry.length <= 3) continue;
+      paths.push(entry.slice(3));
+      // Renames and copies are followed by their original path as a separate NUL-terminated field.
+      if (entry[0] === 'R' || entry[0] === 'C' || entry[1] === 'R' || entry[1] === 'C') {
+        const original = entries[++i];
+        if (original) paths.push(original);
+      }
+    }
+    return paths;
   }
 
   /** The remote default branch (origin/HEAD), if known. */
