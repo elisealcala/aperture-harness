@@ -28,6 +28,10 @@ export interface SandboxCommand {
   args: readonly string[];
   timeoutMs: number;
   maxOutputBytes?: number;
+  /** Extra variables for this command only (resolved contract `env`, incl. hosted-check secrets). */
+  env?: Readonly<Record<string, string>>;
+  /** Port of the per-check egress proxy on 127.0.0.1; the only network destination allowed. */
+  proxyPort?: number;
 }
 
 export interface SandboxResult extends ExecResult {
@@ -108,13 +112,14 @@ function sbplString(value: string): string {
 }
 
 /** Seatbelt profile: no IP networking, writes confined to worktree + tmp, secrets unreadable. */
-export function seatbeltProfile(policy: SandboxPolicy): string {
+export function seatbeltProfile(policy: SandboxPolicy, options: { proxyPort?: number } = {}): string {
   const writable = [policy.worktreePath, policy.tmpDir].map((p) => `(subpath ${sbplString(p)})`).join(' ');
   const hidden = policy.hiddenPaths.map((p) => `(subpath ${sbplString(p)})`).join(' ');
   return [
     '(version 1)',
     '(allow default)',
     '(deny network-outbound (remote ip))',
+    ...(options.proxyPort !== undefined ? [`(allow network-outbound (remote ip "localhost:${Math.trunc(options.proxyPort)}"))`] : []),
     '(deny network-inbound (local ip))',
     '(deny network-bind (local ip))',
     '(deny file-write*)',
@@ -162,13 +167,22 @@ export class SandboxRunner {
   }
 
   async run(command: SandboxCommand): Promise<SandboxResult> {
-    const env = sandboxEnv(this.policy, this.baseEnv);
+    const proxy = command.proxyPort !== undefined ? `http://127.0.0.1:${Math.trunc(command.proxyPort)}` : undefined;
+    if (proxy && this.mode === 'linux-bwrap') {
+      throw new IsolationUnavailableError('allowlisted egress is not supported with bubblewrap yet (its network namespace cannot reach the harness proxy)');
+    }
+    const env: NodeJS.ProcessEnv = {
+      ...(command.env ?? {}),
+      ...sandboxEnv(this.policy, this.baseEnv),
+      // Clients that honor proxy variables go through the allowlisting proxy; everything else is blocked by the sandbox.
+      ...(proxy ? { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, https_proxy: proxy, http_proxy: proxy, NO_PROXY: '', no_proxy: '', NODE_USE_ENV_PROXY: '1' } : {}),
+    };
     const common = { cwd: this.policy.worktreePath, env, timeoutMs: command.timeoutMs, maxOutputBytes: command.maxOutputBytes ?? 512 * 1024 };
     let result: ExecResult;
     switch (this.mode) {
       case 'macos-seatbelt': {
         const profilePath = join(this.policy.tmpDir, '.aperture-sandbox.sb');
-        writeFileSync(profilePath, seatbeltProfile(this.policy), { mode: 0o600 });
+        writeFileSync(profilePath, seatbeltProfile(this.policy, command.proxyPort !== undefined ? { proxyPort: command.proxyPort } : {}), { mode: 0o600 });
         result = await execFileBounded(SEATBELT, ['-f', profilePath, command.exec, ...command.args], common);
         break;
       }

@@ -33,7 +33,9 @@ export function renderContractSummary(approved: ApprovedContract): string {
     'checks (run with run_check):',
     ...(spec.checks.length > 0 ? spec.checks.map((c) => `  - ${c.id}${c.required ? ' (required)' : ''}${c.covers ? ` covers ${c.covers.join(', ')}` : ''}`) : ['  - (none declared)']),
     `limits: ${spec.limits.maxModelTurns} model turns, ${spec.limits.maxPatchAttempts} patch attempts`,
-    'permissions: no network, no dependency changes, no shell beyond declared checks',
+    spec.permissions.network === 'deny'
+      ? 'permissions: no network, no dependency changes, no shell beyond declared checks'
+      : `permissions: you have no network access; only the declared checks may reach ${spec.permissions.network.hosts.join(', ')} through the harness; no dependency changes; no shell beyond declared checks`,
     '</approved_contract>',
   ];
   return lines.join('\n');

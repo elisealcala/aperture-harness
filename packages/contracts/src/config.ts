@@ -65,12 +65,13 @@ export const UserConfigSchema = z.strictObject({
     .strictObject({
       /** `required` fails closed without an OS sandbox; `reduced` must be chosen explicitly. */
       isolation: z.enum(['required', 'reduced']).default('required'),
-      network: z.literal('deny').default('deny'),
+      /** `allowlist`: contracts may grant allowlisted egress to check commands; `deny`: never. */
+      network: z.enum(['allowlist', 'deny']).default('allowlist'),
       questionMode: z.enum(['interactive', 'noninteractive']).default('interactive'),
       /** `in-place` (default): work on the user's checked-out branch; `worktree`: disposable worktree per run. */
       workspace: z.enum(['in-place', 'worktree']).default('in-place'),
     })
-    .default({ isolation: 'required', network: 'deny', questionMode: 'interactive', workspace: 'in-place' }),
+    .default({ isolation: 'required', network: 'allowlist', questionMode: 'interactive', workspace: 'in-place' }),
   storage: z.strictObject({ directory: z.string().default('~/.local/share/aperture') }).default({ directory: '~/.local/share/aperture' }),
   pr: z
     .strictObject({
@@ -170,7 +171,7 @@ limits:
   maxPatchAttempts: 8
 runtime:
   isolation: required
-  network: deny
+  network: allowlist          # contracts may allowlist hosts for check commands; `deny` forbids all egress
   questionMode: interactive
   workspace: in-place        # run on your checked-out branch; or `worktree`
 storage:

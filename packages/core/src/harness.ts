@@ -225,7 +225,12 @@ export class Harness {
   }
 
   analyze(contract: ExecutionContract): ContractFinding[] {
-    return analyzeContract(contract, this.knownCommandIds());
+    const findings = analyzeContract(contract, this.knownCommandIds());
+    const network = contract.spec.permissions.network;
+    if (network !== 'deny' && this.config.runtime.network === 'deny') {
+      findings.push({ level: 'error', code: 'EGRESS_FORBIDDEN', message: 'the contract allowlists network hosts but config runtime.network is deny' });
+    }
+    return findings;
   }
 
   /** Stores a new proposed contract version for the run's task (status `proposed`). */
@@ -414,6 +419,7 @@ export class Harness {
       artifactsDir: this.layout.runDir(run.runId),
       configCommands: this.config.commands,
       redactLiterals: this.options.redactLiterals ?? [],
+      env: this.env,
     });
   }
 

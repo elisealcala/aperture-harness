@@ -42,6 +42,16 @@ export function analyzeContract(contract: ExecutionContract, knownCommandIds: Re
     findings.push({ level: 'error', code: 'NEEDS_EDIT', message: `fill in the ${PLACEHOLDER} placeholders before approving (${placeholders.join(', ')})` });
   }
 
+  const network = contract.spec.permissions.network;
+  if (network !== 'deny') {
+    findings.push({ level: 'warning', code: 'EGRESS_GRANTED', message: `check commands may reach ${network.hosts.join(', ')} through the harness proxy; use test credentials and data` });
+  }
+  for (const [id, command] of Object.entries(commands)) {
+    for (const [name, value] of Object.entries(command.env ?? {})) {
+      if ('fromEnv' in value && value.secret) findings.push({ level: 'warning', code: 'SECRET_ENV', message: `command ${id} receives secret ${name} from $${value.fromEnv} at run time` });
+    }
+  }
+
   if (!checks.some((c) => c.required)) {
     findings.push({ level: 'warning', code: 'NO_REQUIRED_CHECKS', message: 'no required checks: every requirement will be UNVERIFIED and need manual review' });
   }

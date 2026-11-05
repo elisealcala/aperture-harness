@@ -38,6 +38,37 @@ export function repoPatternProblem(value: string): string | undefined {
   return undefined;
 }
 
+const EnvNameSchema = z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/, 'env names must be UPPER_SNAKE_CASE');
+
+/** Variables a contract may never set for a command: the sandbox and proxy own them. */
+export const RESERVED_ENV_NAMES: ReadonlySet<string> = new Set([
+  'PATH', 'HOME', 'TMPDIR', 'NODE_OPTIONS', 'NODE_USE_ENV_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'LD_PRELOAD', 'DYLD_INSERT_LIBRARIES',
+]);
+
+export const CommandEnvValueSchema = z.union([
+  z.strictObject({ value: z.string().max(2000) }),
+  /** Resolved from the operator's environment at execution time; never stored in the contract. */
+  z.strictObject({ fromEnv: EnvNameSchema, secret: z.boolean().default(true) }),
+]);
+export type CommandEnvValue = z.infer<typeof CommandEnvValueSchema>;
+
+/** `host`, `host:port` or `*.domain[:port]`; IP literals, `localhost` and bare `*` are rejected. */
+export const EgressHostSchema = z
+  .string()
+  .max(253)
+  .regex(/^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(:\d{1,5})?$/i, 'egress hosts must be DNS names (optionally *.domain) with an optional :port; IP literals and bare * are not allowed');
+
+export const NetworkPermissionSchema = z.union([
+  z.literal('deny'),
+  z.strictObject({
+    mode: z.literal('allowlist'),
+    hosts: z.array(EgressHostSchema).min(1).max(20),
+    /** Only harness-mapped check commands may use egress; the model never does. */
+    phases: z.array(z.literal('checks')).min(1).default(['checks']),
+  }),
+]);
+export type NetworkPermission = z.infer<typeof NetworkPermissionSchema>;
+
 export const CommandSpecSchema = z.strictObject({
   exec: z
     .string()
@@ -45,6 +76,12 @@ export const CommandSpecSchema = z.strictObject({
     .regex(/^[A-Za-z0-9._/+-]+$/, 'exec must be a bare executable name or path without shell syntax'),
   args: z.array(z.string().max(4096)).max(64).default([]),
   timeoutSeconds: z.number().int().positive().max(3600).default(300),
+  env: z
+    .record(EnvNameSchema, CommandEnvValueSchema)
+    .optional()
+    .superRefine((env, ctx) => {
+      for (const name of Object.keys(env ?? {})) if (RESERVED_ENV_NAMES.has(name)) ctx.addIssue({ code: 'custom', message: `${name} is reserved and cannot be set by a contract` });
+    }),
 });
 export type CommandSpec = z.infer<typeof CommandSpecSchema>;
 
@@ -98,7 +135,7 @@ export type Limits = z.infer<typeof LimitsSchema>;
 export const PermissionsSchema = z.strictObject({
   // The MVP supports only the restrictive value for each privileged capability; anything else is
   // rejected at load time rather than silently ignored.
-  network: z.literal('deny').default('deny'),
+  network: NetworkPermissionSchema.default('deny'),
   dependencies: z.literal('deny').default('deny'),
   shell: z.literal('approved-checks-only').default('approved-checks-only'),
   issueWrites: z.literal('deny').default('deny'),

@@ -3,7 +3,7 @@ import { closeSync, mkdirSync, openSync, readFileSync, readSync, statSync, write
 import { join } from 'node:path';
 import type { ApprovedContract, CommandSpec } from '@aperture/contracts';
 import { redactString, type EventStore, type ReasonCode } from '@aperture/events';
-import { git, type SandboxCommand, type SandboxResult } from '@aperture/sandbox';
+import { EgressProxy, git, type SandboxCommand, type SandboxResult } from '@aperture/sandbox';
 import { newId, type ApertureStore } from '@aperture/storage';
 import { CommandRegistry } from './commands.ts';
 import { parseSingleFilePatch } from './patch.ts';
@@ -50,6 +50,8 @@ export interface GatewayOptions {
   maxReadBytes?: number;
   maxReadLines?: number;
   redactLiterals?: readonly string[];
+  /** Environment used to resolve `fromEnv` command variables (defaults to process.env). */
+  env?: NodeJS.ProcessEnv;
 }
 
 const MODEL_OUTPUT_LIMIT = 6_000;
@@ -354,8 +356,41 @@ export class ToolGateway {
     store.insertCheckRun({ checkRunId, checkId, runId: this.runId, attempt, status: 'RUNNING', exitCode: null, artifactPath: null, outputSha256: null, startedAt, finishedAt: null });
     events.append(this.runId, 'check.started', { checkRunId, checkId, attempt, commandId: resolved.check.commandId, exec: resolved.command.exec, args: resolved.command.args, isolation: runner.mode });
 
-    const result = await runner.run({ exec: resolved.command.exec, args: resolved.command.args, timeoutMs: resolved.command.timeoutSeconds * 1000 });
-    const output = redactString(`$ ${[resolved.command.exec, ...resolved.command.args].join(' ')}\n${result.stdout}${result.stderr ? `\n[stderr]\n${result.stderr}` : ''}`, { literals: this.options.redactLiterals ?? [] });
+    // Resolve per-command env: plain values, or operator env vars (secrets never enter contract/prompt/events).
+    const env: Record<string, string> = {};
+    const secrets: string[] = [];
+    const missing: string[] = [];
+    for (const [name, spec] of Object.entries(resolved.command.env ?? {})) {
+      if ('value' in spec) env[name] = spec.value;
+      else {
+        const value = (this.options.env ?? process.env)[spec.fromEnv];
+        if (value === undefined || value === '') missing.push(spec.fromEnv);
+        else {
+          env[name] = value;
+          if (spec.secret) secrets.push(value);
+        }
+      }
+    }
+    const network = this.options.contract.contract.spec.permissions.network;
+    const egressHosts = network !== 'deny' && network.phases.includes('checks') ? network.hosts : [];
+    let result: SandboxResult;
+    let proxy: EgressProxy | undefined;
+    try {
+      if (missing.length > 0) throw new Error(`missing environment variable(s) for this check: ${missing.join(', ')}`);
+      let proxyPort: number | undefined;
+      if (egressHosts.length > 0) {
+        proxy = new EgressProxy(egressHosts, (d) =>
+          events.append(this.runId, d.allowed ? 'network.allowed' : 'network.denied', { checkRunId, checkId, host: d.host, port: d.port, method: d.method, ...(d.reason ? { reason: d.reason } : {}) }),
+        );
+        proxyPort = await proxy.start();
+      }
+      result = await runner.run({ exec: resolved.command.exec, args: resolved.command.args, timeoutMs: resolved.command.timeoutSeconds * 1000, env, ...(proxyPort !== undefined ? { proxyPort } : {}) });
+    } catch (err) {
+      result = { exitCode: 127, signal: null, stdout: '', stderr: `spawn failed: ${(err as Error).message}`, timedOut: false, durationMs: 0, truncated: false, isolation: runner.mode as SandboxResult['isolation'] };
+    } finally {
+      await proxy?.stop();
+    }
+    const output = redactString(`$ ${[resolved.command.exec, ...resolved.command.args].join(' ')}\n${result.stdout}${result.stderr ? `\n[stderr]\n${result.stderr}` : ''}`, { literals: [...(this.options.redactLiterals ?? []), ...secrets] });
     const status: CheckStatus = result.timedOut ? 'TIMEOUT' : result.exitCode === 0 ? 'PASS' : result.exitCode === 127 && /spawn failed/.test(result.stderr) ? 'ERROR' : 'FAIL';
     mkdirSync(join(this.options.artifactsDir, 'checks'), { recursive: true, mode: 0o700 });
     const artifactPath = join(this.options.artifactsDir, 'checks', `${checkId}-${checkRunId}.log`);

@@ -84,6 +84,10 @@ export function formatEvent(event: EventEnvelope, options: TextRenderOptions = {
       const line = `${ok ? '[✓]' : '[✗]'} ${str(p.checkId)} ${str(p.status)} (exit ${str(p.exitCode ?? 'none')}, ${num(p.durationMs)}ms)`;
       return paint(c, ok ? 'green' : 'red', options.verbose && !ok ? `${line}\n${str(p.outputTail)}` : line);
     }
+    case 'network.allowed':
+      return options.verbose ? paint(c, 'dim', `[·] egress ${str(p.method)} ${str(p.host)}:${num(p.port)} allowed (${str(p.checkId)})`) : null;
+    case 'network.denied':
+      return paint(c, 'red', `[!] Egress denied: ${str(p.host)}:${num(p.port)} (${str(p.checkId)}) — ${str(p.reason)}`);
     case 'question.asked':
       return paint(c, 'yellow', `[?] Clarification (${str(p.questionId)}): ${str(p.question)}${Array.isArray(p.choices) && p.choices.length > 0 ? `\n    ${(p.choices as string[]).map((ch, i) => `${i + 1}) ${ch}`).join('   ')}` : ''}`);
     case 'question.answered':
