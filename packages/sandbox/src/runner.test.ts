@@ -1,8 +1,8 @@
-import { mkdirSync, realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TempDirs } from '../../../tests/helpers/tmp.ts';
-import { IsolationUnavailableError, SandboxRunner, seatbeltProfile, type SandboxPolicy } from './runner.ts';
+import { detectIsolation, IsolationUnavailableError, SandboxRunner, seatbeltProfile, type SandboxPolicy } from './runner.ts';
 
 const tmp = new TempDirs();
 afterEach(() => tmp.cleanup());
@@ -90,5 +90,58 @@ describe('SandboxRunner env and proxy (A1)', () => {
     const runner = new SandboxRunner('linux-bwrap', policy());
     await expect(runner.run({ exec: 'definitely-not-run', args: [], timeoutMs: 1000, proxyPort: 40000 })).rejects.toBeInstanceOf(IsolationUnavailableError);
     await expect(runner.run({ exec: 'definitely-not-run', args: [], timeoutMs: 1000, proxyPort: 40000 })).rejects.toThrow(/bubblewrap/);
+  });
+});
+
+/** Runs `node -e` printing its working directory. */
+const PRINT_CWD = (cwd?: string) => ({ exec: process.execPath, args: ['-e', 'console.log(process.cwd())'], timeoutMs: 20_000, ...(cwd !== undefined ? { cwd } : {}) });
+
+describe('SandboxCommand.cwd (auto-format)', () => {
+  it('runs in the worktree root without a cwd', async () => {
+    const p = policy();
+    const result = await new SandboxRunner('reduced', p).run(PRINT_CWD());
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(realpathSync(p.worktreePath));
+  });
+
+  it.each(['studio', 'studio/', 'apps/web'])('runs in the repository-relative subdirectory %j', async (cwd) => {
+    const p = policy();
+    mkdirSync(join(p.worktreePath, cwd), { recursive: true });
+    const result = await new SandboxRunner('reduced', p).run(PRINT_CWD(cwd));
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(realpathSync(join(p.worktreePath, cwd)));
+  });
+
+  it('follows a symlinked directory that stays inside the worktree', async () => {
+    const p = policy();
+    mkdirSync(join(p.worktreePath, 'packages/studio'), { recursive: true });
+    symlinkSync(join(p.worktreePath, 'packages/studio'), join(p.worktreePath, 'studio'));
+    const result = await new SandboxRunner('reduced', p).run(PRINT_CWD('studio'));
+    expect(result.stdout.trim()).toBe(realpathSync(join(p.worktreePath, 'packages/studio')));
+  });
+
+  it('throws when a symlinked directory points outside the worktree, before spawning', async () => {
+    const p = policy();
+    const outside = tmp.make('aperture-outside-');
+    symlinkSync(outside, join(p.worktreePath, 'escape'));
+    const runner = new SandboxRunner('reduced', p);
+    await expect(runner.run(PRINT_CWD('escape'))).rejects.toThrow('cwd escape escapes the worktree');
+    await expect(runner.run(PRINT_CWD('escape/'))).rejects.toThrow(/escapes the worktree/);
+  });
+
+  it.each(['..', '../..'])('throws for a cwd %j that resolves above the worktree', async (cwd) => {
+    await expect(new SandboxRunner('reduced', policy()).run(PRINT_CWD(cwd))).rejects.toThrow(/escapes the worktree/);
+  });
+
+  it('throws when the cwd does not exist', async () => {
+    await expect(new SandboxRunner('reduced', policy()).run(PRINT_CWD('missing'))).rejects.toThrow(/ENOENT/);
+  });
+
+  it.skipIf(detectIsolation() !== 'macos-seatbelt')('honors cwd under macOS seatbelt', async () => {
+    const p = policy();
+    mkdirSync(join(p.worktreePath, 'studio'), { recursive: true });
+    const result = await new SandboxRunner('macos-seatbelt', p).run(PRINT_CWD('studio'));
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(realpathSync(join(p.worktreePath, 'studio')));
   });
 });

@@ -167,3 +167,97 @@ describe('runtime workspace and network (A1)', () => {
     expect(parseUserConfig({ pr: { draftByDefault: true } }).pr).toEqual({ draftByDefault: true, requireApproval: true });
   });
 });
+
+describe('formatters (auto-format)', () => {
+  const biome = { exec: 'pnpm', args: ['exec', 'biome', 'format', '--write'], include: ['studio/**/*.ts'] };
+
+  it('defaults to no formatters', () => {
+    expect(parseUserConfig({}).formatters).toEqual({});
+  });
+
+  it('parses a formatter and fills args and timeoutSeconds defaults', () => {
+    expect(parseUserConfig({ formatters: { fmt: { exec: 'node', include: ['**/*.ts'] } } }).formatters).toEqual({ fmt: { exec: 'node', args: [], include: ['**/*.ts'], timeoutSeconds: 120 } });
+  });
+
+  it('keeps an explicit cwd, args and timeout', () => {
+    const config = parseUserConfig({ formatters: { 'studio-biome': { ...biome, cwd: 'studio', timeoutSeconds: 30 } } });
+    expect(config.formatters['studio-biome']).toEqual({ ...biome, cwd: 'studio', timeoutSeconds: 30 });
+  });
+
+  it.each(['studio', 'apps/web', 'apps/web/', 'packages/a-b_c.d'])('accepts the plain repository-relative cwd %j', (cwd) => {
+    expect(parseUserConfig({ formatters: { fmt: { ...biome, cwd } } }).formatters.fmt!.cwd).toBe(cwd);
+  });
+
+  it.each([
+    ['..', 'parent traversal'],
+    ['../outside', 'parent traversal'],
+    ['studio/../..', 'parent traversal'],
+    ['/abs/studio', 'absolute'],
+    ['C:/studio', 'drive-absolute'],
+    ['~/studio', 'home-relative'],
+    ['studio\\web', 'backslash'],
+    ['.git', '.git'],
+    ['studio/.git', 'nested .git'],
+    ['studio/*', 'star glob'],
+    ['apps/**', 'globstar'],
+    ['app?', 'question-mark glob'],
+    ['apps/[ab]', 'character class'],
+    ['{a,b}', 'brace expansion'],
+    ['studio\u0000', 'control character'],
+  ])('rejects cwd %j (%s)', (cwd) => {
+    expect(configError({ formatters: { fmt: { ...biome, cwd } } }).issues.join('\n')).toMatch(/formatters\.fmt\.cwd/);
+  });
+
+  it('rejects a cwd longer than 512 characters', () => {
+    expect(configError({ formatters: { fmt: { ...biome, cwd: 'a'.repeat(513) } } }).issues.join('\n')).toMatch(/formatters\.fmt\.cwd/);
+  });
+
+  it.each([
+    [{ exec: 'node' }, 'missing include'],
+    [{ exec: 'node', include: [] }, 'empty include'],
+  ])('requires at least one include glob (%j, %s)', (spec, _label) => {
+    expect(configError({ formatters: { fmt: spec } }).issues.join('\n')).toMatch(/formatters\.fmt\.include/);
+  });
+
+  it.each(['../outside/**', '/abs/**', '.git/**'])('rejects the unsafe include glob %j', (glob) => {
+    expect(configError({ formatters: { fmt: { exec: 'node', include: [glob] } } }).issues.join('\n')).toMatch(/formatters\.fmt\.include/);
+  });
+
+  it.each(['pnpm exec biome', 'sh -c', 'a;b', '$(whoami)', 'fmt|tee', ''])('rejects the exec %j (no shell syntax)', (exec) => {
+    expect(configError({ formatters: { fmt: { ...biome, exec } } }).issues.join('\n')).toMatch(/formatters\.fmt\.exec/);
+  });
+
+  it('accepts an exec given as a relative or absolute path', () => {
+    expect(parseUserConfig({ formatters: { a: { ...biome, exec: './node_modules/.bin/biome' }, b: { ...biome, exec: '/usr/local/bin/prettier' } } }).formatters.b!.exec).toBe('/usr/local/bin/prettier');
+  });
+
+  it.each([0, -1, 1.5, 1801])('rejects timeoutSeconds %j', (timeoutSeconds) => {
+    expect(configError({ formatters: { fmt: { ...biome, timeoutSeconds } } }).issues.join('\n')).toMatch(/formatters\.fmt\.timeoutSeconds/);
+  });
+
+  it('rejects more than 64 args', () => {
+    expect(configError({ formatters: { fmt: { ...biome, args: Array.from({ length: 65 }, () => 'x') } } }).issues.join('\n')).toMatch(/formatters\.fmt\.args/);
+  });
+
+  it.each(['-leading-dash', '.hidden', 'has space', 'a/b', 'x'.repeat(65)])('rejects the formatter id %j', (id) => {
+    expect(configError({ formatters: { [id]: biome } }).issues.length).toBeGreaterThan(0);
+  });
+
+  it('rejects unknown formatter keys (strict)', () => {
+    expect(configError({ formatters: { fmt: { ...biome, shell: true } } }).message).toMatch(/invalid aperture config/);
+  });
+
+  it('DEFAULT_CONFIG_YAML still parses to the defaults (formatters {}) and its commented example is valid', () => {
+    expect(parseUserConfig(parseYaml(DEFAULT_CONFIG_YAML)).formatters).toEqual({});
+    const lines = DEFAULT_CONFIG_YAML.split('\n');
+    const start = lines.indexOf('# formatters:');
+    expect(start).toBeGreaterThan(0);
+    const example: string[] = [];
+    for (const line of lines.slice(start)) {
+      if (!line.startsWith('# ') || (example.length > 0 && !line.startsWith('#  '))) break;
+      example.push(line.slice(2));
+    }
+    const parsed = parseUserConfig(parseYaml(example.join('\n')));
+    expect(parsed.formatters['studio-biome']).toMatchObject({ exec: 'pnpm', cwd: 'studio', include: ['studio/**/*.{ts,tsx,js,jsx,json}'], timeoutSeconds: 120 });
+  });
+});
